@@ -1,2 +1,7 @@
 apikey
-.streamlit/
+.streamlit/*
+!.streamlit/config.toml
+__pycache__/
+.pytest_cache/
+.venv/
+artifacts/
