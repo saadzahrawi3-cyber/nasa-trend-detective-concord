@@ -3,6 +3,7 @@ import re
 import json
 import socket
 from html import escape
+from concord_theme import (inject_theme, nav_bar, section_header, stat_tile, status_chip, arc_gauge_svg, sparkline_svg, led_tile, footer, hero_card, icon, safe_prose, html_table, info_note, with_info, variable_color, variable_icon, status_icon, render_map, render_hero, label_chart, chart_key)
 import requests
 import numpy as np
 import pandas as pd
@@ -31,7 +32,7 @@ except ImportError:
 st.set_page_config(
     page_title="CONCORD | Earth System Trend Detective",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="auto"
 )
 
 if "watchlist" not in st.session_state:
@@ -43,370 +44,7 @@ if "active_case" not in st.session_state:
 # ==============================================================================
 # CUSTOM CSS: PITCH BLACK BASE + PURE WHITE ACCENT + NYT SERIF + BORDERLESS
 # ==============================================================================
-st.markdown(
-    """
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,400&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
-
-    /* 1. Pitch Black Base & White Ink */
-    html, body, .stApp, [data-testid="stAppViewContainer"], [data-testid="stHeader"] {
-        background-color: #000000 !important;
-        color: #FFFFFF !important;
-        font-family: 'Georgia', 'Times New Roman', serif !important;
-    }
-
-    /* 2. Sidebar Matte Obsidian Surface */
-    section[data-testid="stSidebar"] {
-        background-color: #0B0B0B !important;
-        border-right: none !important;
-    }
-    section[data-testid="stSidebar"] * {
-        color: #E5E5E5 !important;
-    }
-
-    /* 3. New York Times Editorial Serif Headings */
-    h1, h2, h3, h4, h5, h6 {
-        font-family: 'Playfair Display', 'Georgia', 'Times New Roman', serif !important;
-        color: #FFFFFF !important;
-        font-weight: 600 !important;
-        letter-spacing: -0.015em !important;
-    }
-    h1 {
-        font-size: 2.5rem !important;
-        line-height: 1.12 !important;
-        margin-bottom: 0.25rem !important;
-    }
-    h3 {
-        font-size: 1.52rem !important;
-        margin-top: 0.45rem !important;
-        margin-bottom: 0.2rem !important;
-    }
-
-    /* 4. Body Prose & Labels */
-    p, li, label, .stMarkdown, [data-testid="stWidgetLabel"] p {
-        font-family: 'Georgia', 'Times New Roman', serif !important;
-        color: #D4D4D4 !important;
-        line-height: 1.58 !important;
-    }
-
-    /* 5. Monochrome Code Badges (No Green Pills) */
-    code {
-        background-color: #1E1E1E !important;
-        color: #FFFFFF !important;
-        font-family: 'JetBrains Mono', monospace !important;
-        padding: 0.15rem 0.45rem !important;
-        border-radius: 0px !important;
-        border: none !important;
-        font-size: 0.82rem !important;
-    }
-
-    /* 6. Borderless Inputs, Textareas, Tabs & Dropdowns */
-    div[data-baseweb="select"] > div,
-    div[data-baseweb="input"] > div,
-    div[data-baseweb="base-input"],
-    textarea {
-        background-color: #121212 !important;
-        color: #FFFFFF !important;
-        border: none !important;
-        border-radius: 0px !important;
-        box-shadow: none !important;
-        font-family: 'Inter', -apple-system, sans-serif !important;
-        font-size: 0.92rem !important;
-    }
-    textarea {
-        padding: 0.85rem !important;
-    }
-    div[data-baseweb="select"] span {
-        color: #FFFFFF !important;
-    }
-    ul[data-baseweb="menu"] {
-        background-color: #121212 !important;
-        border: none !important;
-        border-radius: 0px !important;
-    }
-    li[data-baseweb="option"] {
-        color: #FFFFFF !important;
-        font-family: 'Inter', sans-serif !important;
-    }
-
-    /* Tabs Styling */
-    button[data-baseweb="tab"] {
-        background-color: transparent !important;
-        color: #888888 !important;
-        font-family: 'Inter', sans-serif !important;
-        text-transform: uppercase !important;
-        letter-spacing: 0.08em !important;
-        font-size: 0.78rem !important;
-        font-weight: 600 !important;
-        border: none !important;
-    }
-    button[data-baseweb="tab"][aria-selected="true"] {
-        color: #FFFFFF !important;
-        background-color: #161616 !important;
-    }
-
-    /* 7. Pure White Accent Buttons with Black Text */
-    .stButton > button, .stDownloadButton > button {
-        background-color: #FFFFFF !important;
-        color: #000000 !important;
-        border: none !important;
-        border-radius: 0px !important;
-        box-shadow: none !important;
-        padding: 0.75rem 1.4rem !important;
-        transition: background-color 0.18s ease !important;
-    }
-    .stButton > button p,
-    .stButton > button span,
-    .stButton > button div,
-    .stDownloadButton > button p,
-    .stDownloadButton > button span {
-        color: #000000 !important;
-        font-family: 'Inter', -apple-system, sans-serif !important;
-        font-size: 0.8rem !important;
-        font-weight: 600 !important;
-        text-transform: uppercase !important;
-        letter-spacing: 0.1em !important;
-    }
-    .stButton > button:hover, .stDownloadButton > button:hover {
-        background-color: #D8D8D8 !important;
-        color: #000000 !important;
-        border: none !important;
-    }
-
-    /* 8. Borderless Containers, Expanders, Metrics & Tables */
-    div[data-testid="stVerticalBlockBorderWrapper"],
-    div[data-testid="stMetric"],
-    div[data-testid="stExpander"],
-    div[data-testid="stDataFrame"],
-    div[data-testid="stFileUploader"],
-    .stAlert {
-        background-color: #0F0F0F !important;
-        border: none !important;
-        border-radius: 0px !important;
-        box-shadow: none !important;
-    }
-    div[data-testid="stMetricValue"] {
-        font-family: 'Playfair Display', 'Georgia', serif !important;
-        color: #FFFFFF !important;
-        font-size: 1.75rem !important;
-    }
-    div[data-testid="stMetricLabel"] p {
-        font-family: 'Inter', sans-serif !important;
-        text-transform: uppercase !important;
-        letter-spacing: 0.08em !important;
-        font-size: 0.72rem !important;
-        color: #888888 !important;
-    }
-    div[data-testid="stMetricDelta"] {
-        font-family: 'JetBrains Mono', monospace !important;
-        color: #CCCCCC !important;
-    }
-
-    /* 9. Custom Editorial Components (Borderless Monochrome) */
-    .editorial-deck {
-        font-family: 'Georgia', 'Times New Roman', serif;
-        font-style: italic;
-        font-size: 1.0rem;
-        color: #9A9A9A;
-        margin-top: -0.2rem;
-        margin-bottom: 1.2rem;
-    }
-
-    .telemetry-banner {
-        background-color: #111111;
-        padding: 1.05rem 1.3rem;
-        margin-bottom: 1.2rem;
-        font-family: 'Inter', sans-serif;
-        font-size: 0.85rem;
-        color: #CCCCCC;
-        line-height: 1.6;
-    }
-    .telemetry-banner strong {
-        color: #FFFFFF;
-        text-transform: uppercase;
-        font-size: 0.75rem;
-        letter-spacing: 0.08em;
-    }
-
-    .var-card {
-        background-color: #0E0E0E;
-        padding: 1.35rem 1.25rem;
-        height: 100%;
-        display: flex;
-        flex-direction: column;
-        justify-content: space-between;
-    }
-    .statistics-grid {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 1rem;
-        align-items: stretch;
-    }
-    .statistics-grid .var-card {
-        height: auto;
-        min-width: 0;
-        overflow-wrap: anywhere;
-        border: none !important;
-        border-radius: 0px !important;
-        box-shadow: none !important;
-    }
-    @media (max-width: 1200px) {
-        .statistics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    }
-    @media (max-width: 640px) {
-        .statistics-grid { grid-template-columns: minmax(0, 1fr); }
-    }
-    [data-testid="stWidgetLabel"] p, [data-testid="stTable"] th {
-        font-family: 'Inter', -apple-system, sans-serif !important;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-    }
-    button, input, textarea, table, [data-testid="stExpander"] details {
-        border: none !important;
-        border-radius: 0px !important;
-        box-shadow: none !important;
-    }
-    .var-role {
-        font-family: 'Inter', sans-serif;
-        font-size: 0.72rem;
-        font-weight: 600;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-        color: #888888;
-        margin-bottom: 0.25rem;
-    }
-    .var-title {
-        font-family: 'Playfair Display', 'Georgia', serif;
-        font-size: 1.2rem;
-        font-weight: 600;
-        color: #FFFFFF;
-        margin-bottom: 0.15rem;
-    }
-    .var-meta {
-        font-family: 'Inter', sans-serif;
-        font-size: 0.75rem;
-        color: #777777;
-        margin-bottom: 0.7rem;
-    }
-    .var-plain-what {
-        font-family: 'Georgia', serif;
-        font-style: italic;
-        font-size: 0.85rem;
-        color: #B0B0B0;
-        margin-bottom: 0.95rem;
-        min-height: 3.6rem;
-    }
-    .var-metric-box {
-        background-color: #161616;
-        padding: 0.9rem 1rem;
-        margin-bottom: 0.9rem;
-    }
-    .var-metric-label {
-        font-family: 'Inter', sans-serif;
-        font-size: 0.68rem;
-        text-transform: uppercase;
-        letter-spacing: 0.09em;
-        color: #888888;
-    }
-    .var-metric-val {
-        font-family: 'Playfair Display', 'Georgia', serif;
-        font-size: 1.62rem;
-        font-weight: 700;
-        color: #FFFFFF;
-        margin: 0.15rem 0;
-    }
-    .var-metric-ci {
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 0.75rem;
-        color: #A0A0A0;
-    }
-    .var-stats-grid {
-        font-family: 'JetBrains Mono', monospace;
-        font-size: 0.75rem;
-        color: #CCCCCC;
-        line-height: 1.65;
-        margin-bottom: 0.9rem;
-    }
-    .var-verdict-sig {
-        background-color: #FFFFFF;
-        color: #000000;
-        font-family: 'Inter', sans-serif;
-        font-size: 0.68rem;
-        font-weight: 700;
-        letter-spacing: 0.09em;
-        text-transform: uppercase;
-        padding: 0.35rem 0.6rem;
-        display: inline-block;
-        margin-bottom: 0.8rem;
-    }
-    .var-verdict-emerging {
-        background-color: #333333;
-        color: #FFFFFF;
-        font-family: 'Inter', sans-serif;
-        font-size: 0.68rem;
-        font-weight: 600;
-        letter-spacing: 0.09em;
-        text-transform: uppercase;
-        padding: 0.35rem 0.6rem;
-        display: inline-block;
-        margin-bottom: 0.8rem;
-    }
-    .var-verdict-noise {
-        background-color: #1A1A1A;
-        color: #999999;
-        font-family: 'Inter', sans-serif;
-        font-size: 0.68rem;
-        font-weight: 600;
-        letter-spacing: 0.09em;
-        text-transform: uppercase;
-        padding: 0.35rem 0.6rem;
-        display: inline-block;
-        margin-bottom: 0.8rem;
-    }
-    .plain-summary {
-        background-color: #141414;
-        padding: 0.95rem 1.1rem;
-        font-family: 'Georgia', serif;
-        font-size: 0.88rem;
-        color: #D0D0D0;
-        line-height: 1.55;
-    }
-    .plain-summary strong {
-        color: #FFFFFF;
-    }
-    .tutorial-step {
-        background-color: #121212;
-        padding: 1rem 1.15rem;
-        height: 100%;
-    }
-    .tutorial-step-num {
-        font-family: 'Inter', sans-serif;
-        font-size: 0.7rem;
-        font-weight: 700;
-        letter-spacing: 0.12em;
-        color: #888888;
-        text-transform: uppercase;
-        margin-bottom: 0.3rem;
-    }
-    .tutorial-step-title {
-        font-family: 'Playfair Display', Georgia, serif;
-        font-size: 1.05rem;
-        font-weight: 600;
-        color: #FFFFFF;
-        margin-bottom: 0.4rem;
-    }
-
-    /* Minimalist Dark Divider */
-    hr {
-        border: none !important;
-        height: 1px !important;
-        background-color: #1F1F1F !important;
-        margin: 2.1rem 0 !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+inject_theme()
 
 # ==============================================================================
 # EARTH SCIENCE VARIABLES CATALOG (SCIENTIFIC + ACCESSIBLE STUDENT DEFINITIONS)
@@ -1160,46 +798,61 @@ def execute_demo(meta, esp_ip, esp_port, firebase_url):
         st.rerun()
     except Exception as err:
         st.error(f"Demonstration unavailable: {err}")
+NFC_REGION_MAP = {
+    "BERRECHID":  ("Agricultural Plain / Breadbasket", "Is agricultural topsoil moisture in Berrechid & Chaouia crossing a permanent drying threshold?"),
+    "CASABLANCA": ("Atmosphere Above a Large City", "Is the Urban Heat Island intensifying air temperatures and moisture above Grand Casablanca?"),
+    "SEBOU":      ("Tidal Estuary / Coastal Zone", "How are freshwater rainfall runoff, wind flushing, and warming changing in a Moroccan tidal estuary?"),
+    "OUARZAZATE": ("Desert / Arid Basin", "Are rising desert temperatures and intense sunlight drying out oasis topsoil?"),
+    "AMAZON":     ("Tropical Rain Forest", "Is canopy warming disrupting the Amazon's self-generated rainfall cycle?"),
+    "SVALBARD":   ("Polar / Cryosphere", "How fast is Arctic Amplification warming Svalbard compared to solar and moisture shifts?")
+}
 
+def sync_nfc_badge_from_esp32(esp_ip, esp_port, firebase_url, force_load=False):
+    if not esp_ip.strip():
+        return None
+    try:
+        resp = requests.get(f"http://{esp_ip.strip()}/status", timeout=1.2)
+        if resp.status_code == 200:
+            hw = resp.json()
+            scan_id = int(hw.get("scan_count", 0))
+            last_seen = st.session_state.get("last_nfc_scan_id", 0)
+            if (scan_id > 0 and scan_id != last_seen) or force_load:
+                st.session_state["last_nfc_scan_id"] = scan_id
+                reg_key = hw.get("region_key", "BERRECHID")
+                win_mode = hw.get("window_mode", "FULL_35Y")
+                biome_k, quest_k = NFC_REGION_MAP.get(reg_key, NFC_REGION_MAP["BERRECHID"])
+                meta = dict(BIOME_QUESTIONNAIRE_CATALOG[biome_k]["questions"][quest_k])
+                meta["start_year"] = 2013 if win_mode == "SHORT_12Y" else 1990
+                meta["end_year"] = 2025
+                meta["router_source"] = f"ESP32 NFC BADGE ({hw.get('nfc_uid', 'TAG')} -> {reg_key})"
+                execute_and_store_investigation(meta, esp_ip, esp_port, firebase_url)
+                return hw
+    except Exception:
+        return None
+    return None
 
 # ==============================================================================
 # HELPER: DARK MONOCHROME EDITORIAL PLOTLY LAYOUT (BLACK BASE, WHITE ACCENT)
 # ==============================================================================
 def apply_dark_monochrome_theme(fig, height=430, xaxis_title="Year", yaxis_title=""):
-    """Applies a pitch-black base and crisp white editorial aesthetic to Plotly charts."""
+    """Apply the variable chart palette while preserving data and straight segments."""
     fig.update_layout(
-        height=height,
-        paper_bgcolor="#0E0E0E",
-        plot_bgcolor="#0E0E0E",
-        font=dict(family="Georgia, Times New Roman, serif", color="#FFFFFF", size=12),
-        xaxis=dict(
-            title=xaxis_title,
-            showgrid=True,
-            gridcolor="#1F1F1F",
-            zeroline=False,
-            linecolor="#444444",
-            tickfont=dict(family="Inter, sans-serif", size=11, color="#B0B0B0")
-        ),
-        yaxis=dict(
-            title=yaxis_title,
-            showgrid=True,
-            gridcolor="#1F1F1F",
-            zeroline=True,
-            zerolinecolor="#444444",
-            linecolor="#444444",
-            tickfont=dict(family="Inter, sans-serif", size=11, color="#B0B0B0")
-        ),
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="left",
-            x=0,
-            bgcolor="rgba(0,0,0,0)",
-            font=dict(family="Inter, sans-serif", size=11, color="#FFFFFF")
-        ),
-        margin=dict(l=20, r=20, t=42, b=20)
+        height=height, paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="Segoe UI Variable, Segoe UI, system-ui, Inter, sans-serif", color="#F5F7FF", size=12),
+        colorway=["#FF8F5A", "#F5B79B", "#F0C66C", "#79B9EC"],
+        xaxis=dict(title=None, showgrid=False, zeroline=False,
+                   tickfont=dict(size=11, color="#AFBCD2"), automargin=True),
+        yaxis=dict(title=None, showgrid=True, gridcolor="rgba(255,255,255,.06)",
+                   zeroline=True, zerolinecolor="rgba(255,255,255,.15)",
+                   tickfont=dict(size=11, color="#AFBCD2"), automargin=True),
+        hovermode="x unified",
+        hoverlabel=dict(bgcolor="#252D4B", bordercolor="#404963", font=dict(family="Segoe UI Variable, Segoe UI, system-ui, Inter, sans-serif", color="#F5F7FF", size=12)),
+        legend=dict(orientation="h", yanchor="bottom", y=1.03, xanchor="left", x=0,
+                    bgcolor="rgba(255,255,255,.04)", font=dict(family="Segoe UI Variable, Segoe UI, system-ui, Inter, sans-serif", size=10, color="#D0DAEC")),
+        margin=dict(l=12, r=76, t=64, b=24), showlegend=False
     )
+    fig.update_traces(line_shape="linear", selector=dict(type="scatter"))
+    label_chart(fig, yaxis_title)
     return fig
 
 
@@ -1207,11 +860,7 @@ def apply_dark_monochrome_theme(fig, height=430, xaxis_title="Year", yaxis_title
 # SIDEBAR: CONFIGURATION, EXTERNAL CSV INGESTION & HARDWARE TELEMETRY
 # ==============================================================================
 with st.sidebar:
-    st.markdown("### CONCORD CONTROL TOWER")
-    st.markdown(
-        '<div class="editorial-deck">What this section does: Sets system parameters, external dataset ingestion, and ESP32 hardware routing.</div>',
-        unsafe_allow_html=True
-    )
+    st.html(with_info('<div class="wordmark">' + icon("settings") + 'Control Tower</div>', 'What this section does: Sets system parameters, external dataset ingestion, and ESP32 hardware routing.'))
 
     try:
         default_gemini = st.secrets["GEMINI_API_KEY"]
@@ -1225,7 +874,7 @@ with st.sidebar:
         st.caption("ROUTING ENGINE: Built-in Domain Knowledge Engine active (No external key required).")
 
     st.markdown("---")
-    st.markdown("#### MANUAL VARIABLE OVERRIDE")
+    st.html('<div class="wordmark" style="font-size:.875rem">' + icon("settings") + 'Manual variable override</div>')
     enable_override = st.checkbox("Override Direct Prompt with Manual Settings", value=False)
     var_keys = list(VARIABLES.keys())
     man_lat = st.number_input("Latitude", min_value=-90.0, max_value=90.0, value=33.26, format="%.2f", disabled=not enable_override)
@@ -1241,13 +890,18 @@ with st.sidebar:
     man_years = st.slider("Observation Window", 1981, 2025, (1990, 2025), disabled=not enable_override)
 
     st.markdown("---")
-    st.markdown("#### ESP32 HARDWARE TELEMETRY")
+    st.html('<div class="wordmark" style="font-size:.875rem">' + icon("link") + 'Hardware telemetry</div>')
     esp_ip = st.text_input("ESP32 Local IP Address", value="192.168.1.105")
     esp_port = st.number_input("ESP32 UDP Port", min_value=1, max_value=65535, value=4210, step=1)
     firebase_url = st.text_input("Firebase Realtime DB URL (Optional)", value="")
+    if st.session_state["active_case"] is None:
+        sync_nfc_badge_from_esp32(esp_ip, esp_port, firebase_url)
+    if st.button("Sync NFC badge from ESP32", width="content"):
+        if sync_nfc_badge_from_esp32(esp_ip, esp_port, firebase_url, force_load=True):
+            st.rerun()
 
     st.markdown("---")
-    st.markdown("#### EXTERNAL CSV INGESTION")
+    st.html('<div class="wordmark" style="font-size:.875rem">' + icon("upload") + 'External CSV ingestion</div>')
     st.caption("Upload a time-series CSV from NASA Giovanni, AppEEARS, NOAA CDO, or CUAHSI Hydrological archives.")
     uploaded_csv = st.file_uploader("Select Time-Series CSV", type=["csv"])
     if uploaded_csv is not None:
@@ -1263,7 +917,7 @@ with st.sidebar:
                 d_ext = st.multiselect("CSV driver columns", [c for c in num_cols if c != t_ext],
                                       default=[c for c in num_cols if c != t_ext][:3], max_selections=3,
                                       key=f"csv_drivers_{t_ext}")
-            if len(num_cols) >= 4 and st.button("Analyze Uploaded CSV Dataset", width="stretch"):
+            if len(num_cols) >= 4 and st.button("Analyze CSV", width="content"):
                 if len(d_ext) != 3:
                     raise ValueError("Select exactly three CSV driver columns.")
                 if any(not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,39}", c) for c in [t_ext] + d_ext):
@@ -1291,7 +945,7 @@ with st.sidebar:
         except Exception as e:
             st.caption(f"CSV Parse Notice: {e}")
 
-    if st.button("Clear Watchlist Archive", width="stretch"):
+    if st.button("Clear watchlist", width="content"):
         st.session_state["watchlist"] = []
         st.rerun()
 
@@ -1299,24 +953,12 @@ with st.sidebar:
 # ==============================================================================
 # MASTHEAD & INTERACTIVE DATA DETECTIVE DEMONSTRATION WALKTHROUGH
 # ==============================================================================
-st.title("THE CONCORD EARTH SYSTEM DETECTIVE")
-st.markdown(
-    '<div class="editorial-deck">'
-    'What this section does: Introduces a satellite time-series observatory guiding students, researchers, and citizens to uncover hidden '
-    'environmental trends, filter seasonal cycles, test statistical significance, and trigger physical ESP32 hardware alerts.'
-    '</div>',
-    unsafe_allow_html=True
-)
+st.html(nav_bar('What this section does: Introduces a satellite time-series observatory guiding students, researchers, and citizens to uncover hidden environmental trends, filter seasonal cycles, test statistical significance, and trigger physical ESP32 hardware alerts.'))
+hero_slot = st.container()
 
-with st.expander("Open Guided Data Detective Methodology & Demonstration Walkthrough (How This Observatory Works)", expanded=False):
-    st.markdown(
-        '<div class="editorial-deck">'
-        'What this section does: Walks you through the 5 steps Earth scientists use to investigate whether an environmental '
-        'change is a real long-term trend or short-term weather variability, with two instant demonstration cases.'
-        '</div>',
-        unsafe_allow_html=True
-    )
-    t_cols = st.columns(5)
+with st.expander("How it works", expanded=False):
+    st.html(info_note('What this section does: Walks you through the 5 steps Earth scientists use to investigate whether an environmental change is a real long-term trend or short-term weather variability, with two instant demonstration cases.'))
+    tutorial_tiles = []
     steps_info = [
         ("STEP 01", "Formulate & Acquire", "Choose a specific biome (Desert, Rain Forest, Tidal Estuary, or City Atmosphere) and acquire multi-decade NASA satellite records."),
         ("STEP 02", "Remove Seasonal Cycles", "Raw monthly data zig-zags wildly between summer and winter. Subtracting the monthly average exposes the hidden anomaly signal."),
@@ -1325,20 +967,14 @@ with st.expander("Open Guided Data Detective Methodology & Demonstration Walkthr
         ("STEP 05", "Compare & Forecast", "Discover delayed driver couplings, test whether a longer time window is needed, and transmit the alert bitmask to the ESP32 unit.")
     ]
     for idx, (s_num, s_title, s_desc) in enumerate(steps_info):
-        with t_cols[idx]:
-            st.markdown(
-                f'<div class="tutorial-step">'
-                f'<div class="tutorial-step-num">{s_num}</div>'
-                f'<div class="tutorial-step-title">{s_title}</div>'
-                f'<div class="plain-summary" style="font-size:0.83rem; color:#BDBDBD;">{s_desc}</div>'
-                f'</div>',
-                unsafe_allow_html=True
-            )
+        tutorial_tiles.append('<div class="tutorial-step"><div class="tutorial-step-num">' + escape(s_num) + '</div><div class="tutorial-step-title">' + escape(s_title) + '</div><div class="plain-summary">' + escape(s_desc) + '</div></div>')
+    st.html('<div class="tutorial-grid">' + ''.join(tutorial_tiles) + '</div>')
 
     st.write("")
     d_col1, d_col2 = st.columns(2)
     with d_col1:
-        if st.button("Load Demo 1: Casablanca Long Record (1990-2025, 36 Annual Means)", width="stretch"):
+        st.caption("Casablanca · 1990–2025 · 36 annual means")
+        if st.button("Load Demo 1", width="content"):
             demo_meta = dict(BIOME_QUESTIONNAIRE_CATALOG["Atmosphere Above a Large City"]["questions"][
                 "Is the Urban Heat Island intensifying air temperatures and moisture above Grand Casablanca?"
             ])
@@ -1347,7 +983,8 @@ with st.expander("Open Guided Data Detective Methodology & Demonstration Walkthr
             demo_meta["router_source"] = "GUIDED DEMONSTRATION CASE #1 (35-YEAR WINDOW)"
             execute_demo(demo_meta, esp_ip, esp_port, firebase_url)
     with d_col2:
-        if st.button("Load Demo 2: Same Casablanca Variables (2015-2025, 11 Annual Means)", width="stretch"):
+        st.caption("Same Casablanca variables · 2015–2025 · 11 annual means")
+        if st.button("Load Demo 2", width="content"):
             demo_meta2 = dict(BIOME_QUESTIONNAIRE_CATALOG["Atmosphere Above a Large City"]["questions"][
                 "Is the Urban Heat Island intensifying air temperatures and moisture above Grand Casablanca?"
             ])
@@ -1359,24 +996,12 @@ with st.expander("Open Guided Data Detective Methodology & Demonstration Walkthr
 # ==============================================================================
 # TOP WATCHLIST RIBBON
 # ==============================================================================
-st.markdown("### Watchlist Archive & Regional Comparison Ribbon")
-st.markdown(
-    '<div class="editorial-deck">'
-    'What this section does: Stores every region you investigate during your session so you can track significant alerts '
-    'at a glance and compare two regions side-by-side to see if they trend in opposite directions.'
-    '</div>',
-    unsafe_allow_html=True
-)
+st.html(with_info('<div class="section-heading"><h2>Saved investigations</h2></div>', 'What this section does: Stores every region you investigate during your session so you can track significant alerts at a glance and compare two regions side-by-side to see if they trend in opposite directions.'))
 
 if len(st.session_state["watchlist"]) == 0:
-    st.markdown(
-        '<div class="plain-summary">'
-        'No regional investigations have been archived in this session yet. Use the Guided Detective Questionnaire or AI Prompt Router in Section I below, or click one of the Demonstration buttons above.'
-        '</div>',
-        unsafe_allow_html=True
-    )
+    st.html('<div class="empty-state">' + icon("pin") + '<div><h2>No saved investigations</h2><p>No regional investigations have been archived in this session yet. Use the Guided Detective Questionnaire or AI Prompt Router in Section I below, or click one of the Demonstration buttons above.</p></div></div>')
 else:
-    cols_watch = st.columns(min(4, len(st.session_state["watchlist"])))
+    cols_watch = st.container(horizontal=True, key="watchlist-row", gap="small")
     for slot, item in enumerate(st.session_state["watchlist"][-4:]):
         idx = max(0, len(st.session_state["watchlist"]) - 4) + slot
         w_meta = item["meta"]
@@ -1390,33 +1015,25 @@ else:
         else:
             sig_badge = "UNCONFIRMED: " + observation_window_label(t_stat)
         shift_badge = f"REGIME SHIFT: {w_intel['tipping_year']}" if w_intel["regime_shifted"] else f"INFLECTION: {w_intel['tipping_year']}"
-        with cols_watch[slot]:
-            st.markdown(
-                f"""
-                <div class="var-card" style="margin-bottom: 0.75rem;">
-                    <div>
-                        <div class="var-role">ARCHIVED CASE 0{idx + 1} ({w_meta['start_year']}-{w_meta['end_year']})</div>
-                        <div class="var-title">{escape(w_meta['region_name'])}</div>
-                        <div class="var-meta">Target: {t_v} ({t_stat['slope_dec']:+.3f} {item.get('variables', VARIABLES)[t_v]['unit']}/dec)</div>
-                        <div class="var-stats-grid">
-                            Status: {sig_badge}<br>
-                            Mann-Kendall p: {t_stat['mk_p']:.4f}<br>
-                            {shift_badge}<br>
-                            Primary Driver: {w_intel['strongest_driver']} (r = {w_intel['driver_couplings'][w_intel['strongest_driver']]['r_annual']:+.2f})<br>
-                            ESP32 Bitmask: [{w_intel['led_bitmask']}]
-                        </div>
-                        <div class="plain-summary">{t_stat['plain_summary']}</div>
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True
+        with cols_watch, st.container(key=f"watchlist-chip-{idx}", width=340):
+            selected_class = " selected" if item is st.session_state["active_case"] else ""
+            st.html(
+                '<div class="location-chip' + selected_class + '"><div class="location-name">' + '<span class="watch-dot ' + ('significant' if t_stat['significant'] else 'emerging' if t_stat['emerging'] else 'unconfirmed') + '"></span>' + '<span title="' + escape(w_meta['region_name']) + '">' + escape(w_meta['region_name']) + '</span>' + '</div>'
+                + f'<div class="location-value">{escape(t_v)} · {t_stat["slope_dec"]:+.3f} {escape(item.get("variables", VARIABLES)[t_v]["unit"])}/dec</div>'
+                + '<details><summary>Case ' + str(idx + 1) + ' · ' + str(w_meta['start_year']) + '–' + str(w_meta['end_year']) + ' · Details</summary>'
+                + '<div class="var-stats-grid">Status: ' + escape(sig_badge)
+                + f'<br>Mann-Kendall p: {t_stat["mk_p"]:.4f}<br>' + escape(shift_badge)
+                + '<br>Primary Driver: ' + escape(w_intel['strongest_driver'])
+                + f' (r = {w_intel["driver_couplings"][w_intel["strongest_driver"]]["r_annual"]:+.2f})'
+                + '<br>ESP32 Bitmask: [' + escape(w_intel['led_bitmask']) + ']</div><div class="plain-summary">'
+                + safe_prose(t_stat['plain_summary']) + '</div></details></div>'
             )
-            if st.button(f"Load Case 0{idx + 1}", key=f"load_watch_{idx}", width="stretch"):
+            if st.button("Load", key=f"load_watch_{idx}", width="content"):
                 st.session_state["active_case"] = item
                 st.rerun()
 
     if len(st.session_state["watchlist"]) >= 2:
-        with st.expander("Open Cross-Regional Divergence Comparator (Compare Two Saved Regions)"):
+        with st.expander("Compare saved regions"):
             c_sel1, c_sel2 = st.columns(2)
             names = [f"Case 0{i+1}: {w['meta']['region_name']} ({w['intel']['target_var']})" for i, w in enumerate(st.session_state["watchlist"])]
             idx_a = c_sel1.selectbox("Select Primary Region", range(len(names)), format_func=lambda i: names[i], index=0)
@@ -1435,17 +1052,18 @@ else:
                 y=standardize(case_a["intel"]["annual_df"][f"{va}_anom"]),
                 mode="lines+markers",
                 name=f"{case_a['meta']['region_name']} ({va}: {sa:+.3f}/dec)",
-                line=dict(color="#FFFFFF", width=2.5)
+                line=dict(color=variable_color(va), width=2.5)
             ))
             fig_cmp.add_trace(go.Scatter(
                 x=case_b["intel"]["annual_df"]["year"],
                 y=standardize(case_b["intel"]["annual_df"][f"{vb}_anom"]),
                 mode="lines+markers",
                 name=f"{case_b['meta']['region_name']} ({vb}: {sb:+.3f}/dec)",
-                line=dict(color="#777777", width=2, dash="dash")
+                line=dict(color=variable_color(vb), width=2, dash="dash")
             ))
             fig_cmp = apply_dark_monochrome_theme(fig_cmp, height=300, yaxis_title="Standardized Anomaly (sigma)")
-            st.plotly_chart(fig_cmp, width="stretch")
+            st.plotly_chart(fig_cmp, width="stretch", theme=None, config={"displayModeBar": False})
+            st.html(chart_key(fig_cmp))
             st.markdown('<div class="plain-summary">Each record is standardized against its own mean and variability. '
                         'Check the variable and date labels before comparing; this overlay is descriptive and does not test a difference between regional slopes.</div>', unsafe_allow_html=True)
             if sa * sb < 0:
@@ -1462,36 +1080,29 @@ st.markdown("---")
 # ==============================================================================
 # SECTION I: GUIDED DETECTIVE QUESTIONNAIRE & AI NATURAL LANGUAGE ROUTER
 # ==============================================================================
-st.markdown("### I. Guided Data Detective Inquiry & Satellite Data Acquisition")
-st.markdown(
-    '<div class="editorial-deck">'
-    'What this section does: Lets you either answer three guided questions about an environment (Desert, Rain Forest, Tidal Estuary, '
-    'or Large City Atmosphere) to automatically identify the right NASA variables, or type a custom research question in plain English.'
-    '</div>',
-    unsafe_allow_html=True
-)
+st.html(with_info(section_header("I", "Start an investigation", "inquiry"), 'What this section does: Lets you either answer three guided questions about an environment (Desert, Rain Forest, Tidal Estuary, or Large City Atmosphere) to automatically identify the right NASA variables, or type a custom research question in plain English.'))
 
 tab_guided, tab_ai_prompt = st.tabs([
-    "MODE A: GUIDED DATA DETECTIVE QUESTIONNAIRE (3-STEP INQUIRY)",
-    "MODE B: DIRECT AI RESEARCH PROMPT ROUTER"
+    "Guided questions",
+    "Ask a question"
 ])
 
 with tab_guided:
     q_col1, q_col2, q_col3 = st.columns([2, 3, 2])
     with q_col1:
         selected_biome = st.selectbox(
-            "Question 1: Which biome or regional environment do you want to investigate?",
+            "Region or biome",
             list(BIOME_QUESTIONNAIRE_CATALOG.keys())
         )
     with q_col2:
         available_questions = list(BIOME_QUESTIONNAIRE_CATALOG[selected_biome]["questions"].keys())
         selected_question = st.selectbox(
-            "Question 2: What environmental question or physical process are you testing?",
+            "Research question",
             available_questions
         )
     with q_col3:
         window_choice = st.selectbox(
-            "Question 3: Select historical record length to test significance:",
+            "Record length",
             [
                 "Full Record (1990-2025, 36 Annual Means)",
                 "Medium Record (2005-2025, 21 Annual Means)",
@@ -1502,15 +1113,16 @@ with tab_guided:
     matched_preset = BIOME_QUESTIONNAIRE_CATALOG[selected_biome]["questions"][selected_question]
     st.markdown(
         f'<div class="plain-summary" style="margin-bottom: 1rem;">'
-        f'<strong>Auto-Matched NASA Variable Cluster:</strong> Target Variable: <code>{matched_preset["target_var"]}</code> '
-        f'({VARIABLES[matched_preset["target_var"]]["name"]}) &nbsp;|&nbsp; '
-        f'Driver Variables: <code>{", ".join(matched_preset["driver_vars"])}</code><br>'
-        f'<strong>Regional & Scientific Literature Context:</strong> {matched_preset["literature_context"]}'
+        f'<strong>Auto-Matched NASA Variable Cluster:</strong> Target Variable: <code>{escape(str(matched_preset["target_var"]))}</code> '
+        f'({escape(str(VARIABLES[matched_preset["target_var"]]["name"]))}) &nbsp;|&nbsp; '
+        f'Driver Variables: <code>{escape(str(", ".join(matched_preset["driver_vars"])))}</code><br>'
+        f'<strong>Regional & Scientific Literature Context:</strong> {escape(str(matched_preset["literature_context"]))}'
         f'</div>',
         unsafe_allow_html=True
     )
 
-    if st.button("Launch Guided Detective Investigation & Dispatch to ESP32", width="stretch"):
+    st.caption("Results are sent to ESP32 when a device address is configured.")
+    if st.button("Run guided investigation", width="content"):
         with st.spinner("Acquiring NASA POWER time series, removing seasonal cycles, and computing statistical significance..."):
             try:
                 meta = dict(matched_preset)
@@ -1527,12 +1139,12 @@ with tab_guided:
                 st.error(f"Pipeline Execution Failure: {err}")
 
 with tab_ai_prompt:
-    user_location = st.text_input("City lookup (optional; City, Country)", key="user_location",
+    user_location = st.text_input("City, country (optional)", key="user_location",
                                   help="An explicit city takes priority over locations mentioned in the prompt. For ambiguous places use the manual coordinates.")
     col_prompt, col_quick = st.columns([3, 2])
     with col_quick:
         preset_choice = st.selectbox(
-            "Or select a reference prompt:",
+            "Example question",
             [
                 "Analyze agricultural drought, soil drying, and heat stress in Berrechid and Casablanca, Morocco from 1990 to 2025",
                 "Investigate estuarine rainfall runoff, wind flushing, and coastal warming in the Sebou River Tidal Estuary, Morocco",
@@ -1543,12 +1155,13 @@ with tab_ai_prompt:
         )
     with col_prompt:
         user_query = st.text_area(
-            "Enter Custom Research Query (Specify region, climate phenomenon, or environmental concern):",
+            "Your question",
             value=preset_choice,
             height=90
         )
 
-    if st.button("Execute AI Prompt Analysis & Dispatch to ESP32", width="stretch"):
+    st.caption("Results are sent to ESP32 when a device address is configured.")
+    if st.button("Run prompt investigation", width="content"):
         with st.spinner("Routing query, retrieving NASA POWER archives, removing seasonal cycles, and computing statistical significance..."):
             try:
                 if enable_override:
@@ -1573,6 +1186,9 @@ with tab_ai_prompt:
 # ==============================================================================
 # RENDER SECTIONS II TO VI WHEN AN ACTIVE INVESTIGATION EXISTS
 # ==============================================================================
+if st.session_state["active_case"] is None:
+    st.html('<div class="empty-state" style="margin-top:24px">' + icon("pin") + '<div><h2>No results yet</h2><p>Run an investigation to reveal its trend, annual record, significance, driver relationships and hardware signals. No measurements are shown until a case is loaded.</p></div></div>')
+
 if st.session_state["active_case"] is not None:
     active = st.session_state["active_case"]
     VARIABLES.update(active.get("variables", {}))
@@ -1584,35 +1200,30 @@ if st.session_state["active_case"] is not None:
     v_stats = intel["var_stats"]
     ann_df = intel["annual_df"]
     df_mon = intel["df_monthly"]
-    st.caption(f"Analysis uses {intel['n_years']} complete years, {int(ann_df.year.min())}-{int(ann_df.year.max())}. "
-               f"Climatology: {meta.get('climatology', 'record monthly means')}. "
-               f"Incomplete years excluded from annual statistics: {intel.get('excluded_years', [])}. "
-               f"Invalid monthly rows removed: {intel.get('dropped_rows', 0)}.")
-    st.caption("OLS and Mann-Kendall results assume independent annual observations. Serial correlation and multiple testing are not corrected. "
-               "CUSUM splits and model forecasts are exploratory. POWER point data represent a grid cell, not a city-wide or basin-wide average.")
+    with hero_slot:
+        render_hero(meta, intel, VARIABLES)
+        with st.expander("Notes · record and assumptions"):
+            st.caption(f"Analysis uses {intel['n_years']} complete years, {int(ann_df.year.min())}-{int(ann_df.year.max())}. "
+                       f"Climatology: {meta.get('climatology', 'record monthly means')}. "
+                       f"Incomplete years excluded from annual statistics: {intel.get('excluded_years', [])}. "
+                       f"Invalid monthly rows removed: {intel.get('dropped_rows', 0)}.")
+            st.caption("OLS and Mann-Kendall results assume independent annual observations. Serial correlation and multiple testing are not corrected. "
+                       "CUSUM splits and model forecasts are exploratory. POWER point data represent a grid cell, not a city-wide or basin-wide average.")
 
     st.markdown("---")
-    st.markdown(
-        f"### II. Deseasonalized Statistical Significance Matrix — {meta['region_name']} ({meta['start_year']}–{meta['end_year']})"
-    )
-    st.markdown(
-        '<div class="editorial-deck">'
-        'What this section does: Displays the decadal rate of change, 95% confidence intervals, Mann-Kendall non-parametric test, '
-        'Student\'s t-test, and an Observation Window Sufficiency estimate explaining how many additional years of data are needed if a trend is still emerging.'
-        '</div>',
-        unsafe_allow_html=True
-    )
+    st.html(with_info(section_header("II", "Significance", "significance"), "What this section does: Displays the decadal rate of change, 95% confidence intervals, Mann-Kendall non-parametric test, Student's t-test, and an Observation Window Sufficiency estimate explaining how many additional years of data are needed if a trend is still emerging."))
 
-    st.markdown(
-        f'<div class="telemetry-banner">'
-        f'<strong>Routing Engine:</strong> {escape(meta["router_source"])} &nbsp;&nbsp;|&nbsp;&nbsp; '
-        f'<strong>Biome Archetype:</strong> {escape(meta.get("biome_type", "Regional System"))} &nbsp;&nbsp;|&nbsp;&nbsp; '
-        f'<strong>Coordinates:</strong> Latitude {meta["lat"]:+.2f}, Longitude {meta["lon"]:+.2f} ({intel["n_years"]} Years / {len(df_mon)} Monthly Observations)<br>'
-        f'<strong>Physical Hypothesis:</strong> {escape(meta["hypothesis"])}<br>'
-        f'<strong>Regional Background (not a verified citation):</strong> {escape(meta.get("literature_context", ""))}'
-        f'</div>',
-        unsafe_allow_html=True
-    )
+    with st.expander("Notes · investigation context"):
+        st.markdown(
+            f'<div class="telemetry-banner">'
+            f'<strong>Routing Engine:</strong> {escape(meta["router_source"])} &nbsp;&nbsp;|&nbsp;&nbsp; '
+            f'<strong>Biome Archetype:</strong> {escape(meta.get("biome_type", "Regional System"))} &nbsp;&nbsp;|&nbsp;&nbsp; '
+            f'<strong>Coordinates:</strong> Latitude {meta["lat"]:+.2f}, Longitude {meta["lon"]:+.2f} ({escape(str(intel["n_years"]))} Years / {escape(str(len(df_mon)))} Monthly Observations)<br>'
+            f'<strong>Physical Hypothesis:</strong> {escape(meta["hypothesis"])}<br>'
+            f'<strong>Regional Background (not a verified citation):</strong> {escape(meta.get("literature_context", ""))}'
+            f'</div>',
+            unsafe_allow_html=True
+        )
 
     card_html = []
     for i, v in enumerate(all_vars):
@@ -1635,27 +1246,28 @@ if st.session_state["active_case"] is not None:
                 f"""
                 <div class="var-card">
                     <div>
-                        <div class="var-role">{role_tag} — {v}</div>
-                        <div class="var-title">{VARIABLES[v]['name']}</div>
-                        <div class="var-meta">{VARIABLES[v]['mission']} | {VARIABLES[v]['category']}</div>
-                        <div class="var-plain-what">Simple definition: {VARIABLES[v]['plain_desc']}</div>
-                        <details><summary>Scientific definition</summary>{VARIABLES[v]['sci_desc']}</details>
+                        <div class="var-role">{escape(str(role_tag))} — {escape(str(v))}</div>
+                        <div class="var-title">{variable_icon(v)}{escape(str(VARIABLES[v]['name']))}</div>
+                        <div class="tile-sparkline">{sparkline_svg(ann_df[v], "Annual observed " + v, variable_color(v))}</div>
                         <div class="var-metric-box">
                             <div class="var-metric-label">Deseasonalized Linear Rate / Decade</div>
-                            <div class="var-metric-val">{st_v['slope_dec']:+.3f} {VARIABLES[v]['unit']}</div>
+                            <div class="var-metric-val">{st_v['slope_dec']:+.3f} {escape(str(VARIABLES[v]['unit']))}</div>
                             <div class="var-metric-ci">+/- {st_v['ci_95_dec']:.3f} (95% Confidence Interval)</div>
                         </div>
-                        <div class="{verdict_class}">{verdict_text}</div>
+                        <div class="{escape(verdict_class)}">{status_icon("significant" if st_v["significant"] else "emerging" if st_v["emerging"] else "unconfirmed")}{escape(str(verdict_text))}</div>
+                        <details class="variable-notes"><summary>Statistics and notes</summary>
+                        <div class="var-meta">{escape(str(VARIABLES[v]['mission']))} | {escape(str(VARIABLES[v]['category']))}</div>
+                        <div class="var-plain-what">Simple definition: {escape(str(VARIABLES[v]['plain_desc']))}</div>
+                        <details><summary>Scientific definition</summary>{escape(str(VARIABLES[v]['sci_desc']))}</details>
                         <div class="var-stats-grid">
                             Sen's Median Slope : {st_v['sens_slope_dec']:+.3f} /dec<br>
                             Mann-Kendall Test  : S = {st_v['mk_s']:+.0f}, Z = {st_v['mk_z']:+.2f} (p = {st_v['mk_p']:.4f})<br>
                             Student's t-test   : p = {st_v['ttest_p']:.4f} (R2 = {st_v['r_squared']:.2f})<br>
-                            {window_line}
+                            {escape(str(window_line))}
                         </div>
-                    </div>
                     <div class="plain-summary" style="margin-top: 0.4rem;">
-                        {st_v['plain_summary']}
-                    </div>
+                        {safe_prose(st_v['plain_summary'])}
+                    </div></details></div>
                 </div>
                 """
         )
@@ -1669,240 +1281,239 @@ if st.session_state["active_case"] is not None:
     col_mod3, col_mod2 = st.container(), st.container()
 
     with col_mod3:
-        st.markdown("### III. Time-Series Visualization, Seasonal Cycle Removal & Forecast")
-        st.markdown(
-            '<div class="editorial-deck">'
-            'What this section does: Lets you inspect (1) the primary linear trendline and shaded 95% confidence interval fan, '
-            '(2) how removing the monthly summer-winter seasonal cycle exposes hidden trends, (3) tipping-point regime shifts and AI forecasts, '
-            'or (4) all four variables overlaid on a standardized scale.'
-            '</div>',
-            unsafe_allow_html=True
-        )
+        st.html(with_info(section_header("III", "Trends over time", "time-series"), 'What this section does: Lets you inspect (1) the primary linear trendline and shaded 95% confidence interval fan, (2) how removing the monthly summer-winter seasonal cycle exposes hidden trends, (3) tipping-point regime shifts and AI forecasts, or (4) all four variables overlaid on a standardized scale.'))
 
         view_mode = st.radio(
-            "Select Scientific Diagram Mode:",
+            "Chart view",
             [
                 "1. Primary Linear Trend & 95% Confidence Interval Fan",
                 "2. Seasonal Cycle Removal (Raw Monthly Zig-Zag vs. Deseasonalized Signal)",
                 "3. Piecewise Regime Inflection (CUSUM) & 10-Yr Multivariate Forecast",
                 "4. Standardized 4-Variable Z-Score Overlay (Dimensionless Sigma Scale)"
             ],
-            horizontal=False
+            horizontal=True,
+            format_func=lambda value: {"1.": "Trend & CI", "2.": "Seasonal removal", "3.": "Regime & forecast", "4.": "Z-score overlay"}[value[:2]]
         )
 
-        if view_mode.startswith("1."):
-            fig_lin = go.Figure()
-            x_yr = ann_df["year"].values
-            y_obs = ann_df[t_var].values
-            st_t = v_stats[t_var]
+        chart_area, chart_stats = st.columns([2, 1], gap="large")
+        with chart_stats:
+            st.html('<div class="chart-facts">' + stat_tile("OLS slope / decade", f"{v_stats[t_var]['slope_dec']:+.3f} {VARIABLES[t_var]['unit']}")
+                    + stat_tile("95% confidence interval", f"+/- {v_stats[t_var]['ci_95_dec']:.3f}")
+                    + stat_tile("Mann-Kendall p", f"{v_stats[t_var]['mk_p']:.4f}")
+                    + stat_tile("Student's t-test p", f"{v_stats[t_var]['ttest_p']:.4f}")
+                    + stat_tile("Annual means", str(intel['n_years'])) + '</div>')
+        with chart_area:
+            if view_mode.startswith("1."):
+                fig_lin = go.Figure()
+                x_yr = ann_df["year"].values
+                y_obs = ann_df[t_var].values
+                st_t = v_stats[t_var]
 
-            # Shaded 95% Confidence Interval Envelope around the Linear Regression Line
-            fig_lin.add_trace(go.Scatter(
-                x=np.concatenate([x_yr, x_yr[::-1]]),
-                y=np.concatenate([st_t["ci_upper_raw"], st_t["ci_lower_raw"][::-1]]),
-                fill="toself",
-                fillcolor="rgba(255, 255, 255, 0.13)",
-                line=dict(color="rgba(255,255,255,0)"),
-                hoverinfo="skip",
-                name="95% Confidence Interval Envelope"
-            ))
-
-            # Observed Annual Time Series
-            fig_lin.add_trace(go.Scatter(
-                x=x_yr, y=y_obs, mode="lines+markers",
-                name=f"Observed {t_var} ({VARIABLES[t_var]['unit']})",
-                line=dict(color="#888888", width=1.8),
-                marker=dict(color="#FFFFFF", size=5)
-            ))
-
-            # Full-Period Linear Regression Line
-            fig_lin.add_trace(go.Scatter(
-                x=x_yr, y=st_t["y_hat_raw"], mode="lines",
-                name=f"OLS Linear Trend ({st_t['slope_dec']:+.3f} {VARIABLES[t_var]['unit']}/dec, p={st_t['ttest_p']:.4f})",
-                line=dict(color="#FFFFFF", width=3.2)
-            ))
-
-            fig_lin = apply_dark_monochrome_theme(
-                fig_lin, height=430, yaxis_title=f"{VARIABLES[t_var]['name']} ({VARIABLES[t_var]['unit']})"
-            )
-            st.plotly_chart(fig_lin, width="stretch")
-
-            st.markdown(
-                f'<div class="plain-summary">'
-                f'<strong>How to read this chart:</strong> The thick white line is the full-period linear trendline '
-                f'({st_t["slope_dec"]:+.3f} {VARIABLES[t_var]["unit"]} per decade), and the shaded band around it is the '
-                f'<strong>95% Confidence Interval</strong>. A narrow band with a steep slope indicates a highly reliable trend, '
-                f'whereas a wide fan indicates larger year-to-year uncertainty.'
-                f'</div>',
-                unsafe_allow_html=True
-            )
-
-        elif view_mode.startswith("2."):
-            fig_seas = go.Figure()
-            fig_seas.add_trace(go.Scatter(
-                x=df_mon["date"], y=df_mon[t_var], mode="lines",
-                name=f"Raw Monthly Series (With Seasonal Cycle)",
-                line=dict(color="#555555", width=1.2)
-            ))
-            fig_seas.add_trace(go.Scatter(
-                x=df_mon["date"], y=df_mon[f"{t_var}_anom"] + v_stats[t_var]["mean_raw"], mode="lines",
-                name=f"Deseasonalized Series (Seasonal Cycle Removed)",
-                line=dict(color="#B0B0B0", width=1.8)
-            ))
-            fig_seas.add_trace(go.Scatter(
-                x=df_mon["date"],
-                y=v_stats[t_var]["monthly_trend_line"] + v_stats[t_var]["mean_raw"],
-                mode="lines",
-                name=f"Exposed Linear Trend ({v_stats[t_var]['slope_dec']:+.3f}/dec)",
-                line=dict(color="#FFFFFF", width=3.2)
-            ))
-            fig_seas = apply_dark_monochrome_theme(
-                fig_seas, height=430, xaxis_title="Monthly Timeline",
-                yaxis_title=f"{VARIABLES[t_var]['name']} ({VARIABLES[t_var]['unit']})"
-            )
-            st.plotly_chart(fig_seas, width="stretch")
-
-            st.markdown(
-                '<div class="plain-summary">'
-                '<strong>Why removing the seasonal cycle matters:</strong> The dark grey wave shows the raw monthly satellite measurements, '
-                'which swing up and down every summer and winter. That regular seasonal cycle hides gradual climate shifts. '
-                'By subtracting the historical average for each month (January through December), the lighter curve and solid white trendline '
-                'expose the true underlying anomaly trajectory across all monthly data points.'
-                '</div>',
-                unsafe_allow_html=True
-            )
-
-        elif view_mode.startswith("3."):
-            fig_main = go.Figure()
-            y_obs = ann_df[t_var].values
-            x_yr = ann_df["year"].values
-
-            fig_main.add_trace(go.Scatter(
-                x=x_yr, y=y_obs, mode="lines+markers",
-                name=f"Observed {t_var} ({VARIABLES[t_var]['unit']})",
-                line=dict(color="#FFFFFF", width=2.2),
-                marker=dict(color="#FFFFFF", size=5)
-            ))
-
-            tip_yr = intel["tipping_year"]
-            tip_idx = int(np.where(x_yr == tip_yr)[0][0])
-            lin_pre = safe_linregress(x_yr[:tip_idx], y_obs[:tip_idx])
-            lin_post = safe_linregress(x_yr[tip_idx:], y_obs[tip_idx:])
-
-            fig_main.add_trace(go.Scatter(
-                x=x_yr[:tip_idx],
-                y=lin_pre.slope * x_yr[:tip_idx] + lin_pre.intercept,
-                mode="lines", name=f"Pre-{tip_yr} Regime ({intel['slope_pre']:+.3f}/dec)",
-                line=dict(color="#777777", width=2.2, dash="dash")
-            ))
-            fig_main.add_trace(go.Scatter(
-                x=x_yr[tip_idx:],
-                y=lin_post.slope * x_yr[tip_idx:] + lin_post.intercept,
-                mode="lines", name=f"Post-{tip_yr} Regime ({intel['slope_post']:+.3f}/dec)",
-                line=dict(color="#FFFFFF", width=3.2, dash="dash")
-            ))
-
-            fig_main.add_trace(go.Scatter(
-                x=v_stats[t_var]["extreme_years"],
-                y=v_stats[t_var]["extreme_vals"],
-                mode="markers", name="Isolation Forest Extreme Anomalies",
-                marker=dict(color="#000000", size=11, symbol="diamond", line=dict(width=2, color="#FFFFFF"))
-            ))
-
-            fig_main.add_trace(go.Scatter(
-                x=intel["future_years"], y=intel["forecast_vals"],
-                mode="lines+markers", name=f"10-Yr Forecast ({intel['ai_engine_label']})",
-                line=dict(color="#A0A0A0", width=2.5, dash="dot"),
-                marker=dict(color="#FFFFFF", size=6, symbol="square")
-            ))
-
-            fig_main.add_vline(
-                x=tip_yr, line_width=1.5, line_dash="dot", line_color="#FFFFFF",
-                annotation_text=f"CUSUM Inflection: {tip_yr}",
-                annotation_position="top left",
-                annotation_font=dict(color="#FFFFFF", family="Inter, sans-serif", size=11)
-            )
-            fig_main = apply_dark_monochrome_theme(
-                fig_main, height=430, yaxis_title=f"{VARIABLES[t_var]['name']} ({VARIABLES[t_var]['unit']})"
-            )
-            st.plotly_chart(fig_main, width="stretch")
-
-            st.markdown(
-                f'<div class="plain-summary">'
-                f'<strong>How to read this non-linear regime chart:</strong> Environmental trends rarely move at a constant speed. '
-                f'The vertical line at <strong>{tip_yr}</strong> marks an exploratory CUSUM split where the fitted decadal slope changes from '
-                f'{intel["slope_pre"]:+.3f} to {intel["slope_post"]:+.3f} {VARIABLES[t_var]["unit"]}/decade, followed by the 10-year '
-                f'multivariate scenario forecast. This split is not proof of a physical tipping point; the forecast has not been independently validated.'
-                f'</div>',
-                unsafe_allow_html=True
-            )
-
-        else:
-            fig_z = go.Figure()
-            styles = [
-                dict(color="#FFFFFF", width=3.0, dash="solid"),
-                dict(color="#B0B0B0", width=2.0, dash="dash"),
-                dict(color="#777777", width=2.0, dash="dot"),
-                dict(color="#555555", width=1.8, dash="dashdot")
-            ]
-            for idx, v in enumerate(all_vars):
-                z_series = standardize(ann_df[f"{v}_anom"].values)
-                fig_z.add_trace(go.Scatter(
-                    x=ann_df["year"], y=z_series, mode="lines",
-                    name=f"{v} ({'Target' if v == t_var else 'Driver'})",
-                    line=styles[idx % len(styles)]
+                # Shaded 95% Confidence Interval Envelope around the Linear Regression Line
+                fig_lin.add_trace(go.Scatter(
+                    x=np.concatenate([x_yr, x_yr[::-1]]),
+                    y=np.concatenate([st_t["ci_upper_raw"], st_t["ci_lower_raw"][::-1]]),
+                    fill="toself",
+                    fillcolor="rgba(255,143,90,.14)",
+                    line=dict(color="rgba(255,255,255,0)"),
+                    hoverinfo="skip",
+                    name="95% Confidence Interval Envelope"
                 ))
-            fig_z.add_vline(x=intel["tipping_year"], line_width=1.5, line_dash="dot", line_color="#FFFFFF")
-            fig_z = apply_dark_monochrome_theme(
-                fig_z, height=430, yaxis_title="Deseasonalized Z-Score Anomaly (sigma)"
-            )
-            st.plotly_chart(fig_z, width="stretch")
 
-            st.markdown(
-                '<div class="plain-summary">'
-                '<strong>How to read this chart:</strong> Because temperature, sunlight, and water are measured in different units, '
-                'this chart converts all four variables onto a single standardized scale (standard deviations from normal, where 0 is average). '
-                'When one line rises above 0 while another drops below 0, their anomalies have opposite signs at that time.'
-                '</div>',
-                unsafe_allow_html=True
-            )
+                # Observed Annual Time Series
+                fig_lin.add_trace(go.Scatter(
+                    x=x_yr, y=y_obs, mode="lines+markers",
+                    name=f"Observed {t_var} ({VARIABLES[t_var]['unit']})",
+                    line=dict(color=variable_color(t_var), width=1.8),
+                    marker=dict(color=variable_color(t_var), size=5)
+                ))
 
-        # Processed CSV Download Button for Students & Researchers
-        csv_buffer = df_mon.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            label="Download Deseasonalized Monthly Time-Series Table (CSV)",
-            data=csv_buffer,
-            file_name=f"concord_deseasonalized_{t_var}_{meta['start_year']}_{meta['end_year']}.csv",
-            mime="text/csv",
-            width="stretch"
-        )
+                # Full-Period Linear Regression Line
+                fig_lin.add_trace(go.Scatter(
+                    x=x_yr, y=st_t["y_hat_raw"], mode="lines",
+                    name=f"OLS Linear Trend ({st_t['slope_dec']:+.3f} {VARIABLES[t_var]['unit']}/dec, p={st_t['ttest_p']:.4f})",
+                    line=dict(color=variable_color(t_var), width=3.2)
+                ))
+
+                if "fillgradient" in go.Scatter()._valid_props:
+                    fig_lin.data[0].fillgradient = dict(type="vertical", colorscale=[[0, "rgba(255,143,90,.02)"], [1, "rgba(255,143,90,.22)"]])
+                fig_lin = apply_dark_monochrome_theme(
+                    fig_lin, height=430, yaxis_title=f"{VARIABLES[t_var]['name']} ({VARIABLES[t_var]['unit']})"
+                )
+                st.plotly_chart(fig_lin, width="stretch", theme=None, config={"displayModeBar": False})
+                st.html(chart_key(fig_lin))
+
+                st.markdown(
+                    f'<div class="plain-summary">'
+                    f'<strong>How to read this chart:</strong> The solid colored line is the full-period linear trendline '
+                    f'({st_t["slope_dec"]:+.3f} {escape(str(VARIABLES[t_var]["unit"]))} per decade), and the shaded band around it is the '
+                    f'<strong>95% Confidence Interval</strong>. A narrow band with a steep slope indicates a highly reliable trend, '
+                    f'whereas a wide fan indicates larger year-to-year uncertainty.'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
+
+            elif view_mode.startswith("2."):
+                fig_seas = go.Figure()
+                fig_seas.add_trace(go.Scatter(
+                    x=df_mon["date"], y=df_mon[t_var], mode="lines",
+                    name=f"Raw Monthly Series (With Seasonal Cycle)",
+                    line=dict(color="#7D90AC", width=1.2)
+                ))
+                fig_seas.add_trace(go.Scatter(
+                    x=df_mon["date"], y=df_mon[f"{t_var}_anom"] + v_stats[t_var]["mean_raw"], mode="lines",
+                    name=f"Deseasonalized Series (Seasonal Cycle Removed)",
+                    line=dict(color=variable_color(t_var), width=1.8)
+                ))
+                fig_seas.add_trace(go.Scatter(
+                    x=df_mon["date"],
+                    y=v_stats[t_var]["monthly_trend_line"] + v_stats[t_var]["mean_raw"],
+                    mode="lines",
+                    name=f"Exposed Linear Trend ({v_stats[t_var]['slope_dec']:+.3f}/dec)",
+                    line=dict(color=variable_color(t_var), width=3.2)
+                ))
+                fig_seas = apply_dark_monochrome_theme(
+                    fig_seas, height=430, xaxis_title="Monthly Timeline",
+                    yaxis_title=f"{VARIABLES[t_var]['name']} ({VARIABLES[t_var]['unit']})"
+                )
+                st.plotly_chart(fig_seas, width="stretch", theme=None, config={"displayModeBar": False})
+                st.html(chart_key(fig_seas))
+
+                st.markdown(
+                    '<div class="plain-summary">'
+                    '<strong>Why removing the seasonal cycle matters:</strong> The muted blue wave shows the raw monthly satellite measurements, '
+                    'which swing up and down every summer and winter. That regular seasonal cycle hides gradual climate shifts. '
+                    'By subtracting the historical average for each month (January through December), the anomaly curve and solid trendline '
+                    'expose the true underlying anomaly trajectory across all monthly data points.'
+                    '</div>',
+                    unsafe_allow_html=True
+                )
+
+            elif view_mode.startswith("3."):
+                fig_main = go.Figure()
+                y_obs = ann_df[t_var].values
+                x_yr = ann_df["year"].values
+
+                fig_main.add_trace(go.Scatter(
+                    x=x_yr, y=y_obs, mode="lines+markers",
+                    name=f"Observed {t_var} ({VARIABLES[t_var]['unit']})",
+                    line=dict(color=variable_color(t_var), width=2.2),
+                    marker=dict(color=variable_color(t_var), size=5)
+                ))
+
+                tip_yr = intel["tipping_year"]
+                tip_idx = int(np.where(x_yr == tip_yr)[0][0])
+                lin_pre = safe_linregress(x_yr[:tip_idx], y_obs[:tip_idx])
+                lin_post = safe_linregress(x_yr[tip_idx:], y_obs[tip_idx:])
+
+                fig_main.add_trace(go.Scatter(
+                    x=x_yr[:tip_idx],
+                    y=lin_pre.slope * x_yr[:tip_idx] + lin_pre.intercept,
+                    mode="lines", name=f"Pre-{tip_yr} Regime ({intel['slope_pre']:+.3f}/dec)",
+                    line=dict(color=variable_color(t_var), width=2.2, dash="dash")
+                ))
+                fig_main.add_trace(go.Scatter(
+                    x=x_yr[tip_idx:],
+                    y=lin_post.slope * x_yr[tip_idx:] + lin_post.intercept,
+                    mode="lines", name=f"Post-{tip_yr} Regime ({intel['slope_post']:+.3f}/dec)",
+                    line=dict(color=variable_color(t_var), width=3.2, dash="dash")
+                ))
+
+                fig_main.add_trace(go.Scatter(
+                    x=v_stats[t_var]["extreme_years"],
+                    y=v_stats[t_var]["extreme_vals"],
+                    mode="markers", name="Isolation Forest Extreme Anomalies",
+                    marker=dict(color="#151B45", size=11, symbol="diamond", line=dict(width=2, color=variable_color(t_var)))
+                ))
+
+                fig_main.add_trace(go.Scatter(
+                    x=intel["future_years"], y=intel["forecast_vals"],
+                    mode="lines+markers", name=f"10-Yr Forecast ({intel['ai_engine_label']})",
+                    line=dict(color=variable_color(t_var), width=2.5, dash="dot"),
+                    marker=dict(color=variable_color(t_var), size=6, symbol="square")
+                ))
+
+                fig_main.add_vline(
+                    x=tip_yr, line_width=1.5, line_dash="dot", line_color=variable_color(t_var),
+                    annotation_text=f"CUSUM Inflection: {tip_yr}",
+                    annotation_position="bottom left",
+                    annotation_font=dict(color="#281509", family="Segoe UI Variable, Segoe UI, system-ui, Inter, sans-serif", size=11),
+                    annotation_bgcolor=variable_color(t_var), annotation_borderpad=6
+                )
+                fig_main = apply_dark_monochrome_theme(
+                    fig_main, height=430, yaxis_title=f"{VARIABLES[t_var]['name']} ({VARIABLES[t_var]['unit']})"
+                )
+                st.plotly_chart(fig_main, width="stretch", theme=None, config={"displayModeBar": False})
+                st.html(chart_key(fig_main))
+
+                st.markdown(
+                    f'<div class="plain-summary">'
+                    f'<strong>How to read this non-linear regime chart:</strong> Environmental trends rarely move at a constant speed. '
+                    f'The vertical line at <strong>{escape(str(tip_yr))}</strong> marks an exploratory CUSUM split where the fitted decadal slope changes from '
+                    f'{intel["slope_pre"]:+.3f} to {intel["slope_post"]:+.3f} {escape(str(VARIABLES[t_var]["unit"]))}/decade, followed by the 10-year '
+                    f'multivariate scenario forecast. This split is not proof of a physical tipping point; the forecast has not been independently validated.'
+                    f'</div>',
+                    unsafe_allow_html=True
+                )
+
+            else:
+                fig_z = go.Figure()
+                styles = [
+                    dict(color=variable_color(t_var), width=3.0, dash="solid"),
+                    dict(color=variable_color(t_var), width=2.0, dash="dash"),
+                    dict(color="#F0C66C", width=2.0, dash="dot"),
+                    dict(color=variable_color(t_var), width=1.8, dash="dashdot")
+                ]
+                for idx, v in enumerate(all_vars):
+                    z_series = standardize(ann_df[f"{v}_anom"].values)
+                    fig_z.add_trace(go.Scatter(
+                        x=ann_df["year"], y=z_series, mode="lines",
+                        name=f"{v} ({'Target' if v == t_var else 'Driver'})",
+                        line=dict(styles[idx % len(styles)], color=variable_color(v))
+                    ))
+                fig_z.add_vline(x=intel["tipping_year"], line_width=1.5, line_dash="dot", line_color=variable_color(t_var))
+                fig_z = apply_dark_monochrome_theme(
+                    fig_z, height=430, yaxis_title="Deseasonalized Z-Score Anomaly (sigma)"
+                )
+                st.plotly_chart(fig_z, width="stretch", theme=None, config={"displayModeBar": False})
+                st.html(chart_key(fig_z))
+
+                st.markdown(
+                    '<div class="plain-summary">'
+                    '<strong>How to read this chart:</strong> Because temperature, sunlight, and water are measured in different units, '
+                    'this chart converts all four variables onto a single standardized scale (standard deviations from normal, where 0 is average). '
+                    'When one line rises above 0 while another drops below 0, their anomalies have opposite signs at that time.'
+                    '</div>',
+                    unsafe_allow_html=True
+                )
+
+            # Processed CSV Download Button for Students & Researchers
+            csv_buffer = df_mon.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="Download monthly CSV",
+                data=csv_buffer,
+                file_name=f"concord_deseasonalized_{t_var}_{meta['start_year']}_{meta['end_year']}.csv",
+                mime="text/csv",
+                width="content"
+            )
 
     with col_mod2:
-        st.markdown("### IV. Driver Coupling, Lag & Regime Shift")
-        st.markdown(
-            '<div class="editorial-deck">'
-            'What this section does: Measures how strongly the three driver variables vary with the target variable, '
-            'checks for delayed 1-to-3 month reactions, and detects opposite-direction paradoxes.'
-            '</div>',
-            unsafe_allow_html=True
-        )
+        st.html(with_info(section_header("IV", "Driver relationships", "coupling"), 'What this section does: Measures how strongly the three driver variables vary with the target variable, checks for delayed 1-to-3 month reactions, and detects opposite-direction paradoxes.'))
 
         fig_heat = px.imshow(
             np.round(intel["corr_matrix"].values, 2),
             x=all_vars, y=all_vars,
-            color_continuous_scale=[[0.0, "#141414"], [0.5, "#333333"], [1.0, "#EAEAEA"]],
+            color_continuous_scale=[[0.0, "#3E7197"], [0.5, "#252D4B"], [1.0, "#9B6146"]],
             zmin=-1, zmax=1,
             text_auto=True, aspect="auto"
         )
-        fig_heat.update_layout(
-            height=220,
-            paper_bgcolor="#0E0E0E",
-            plot_bgcolor="#0E0E0E",
-            font=dict(family="Inter, sans-serif", color="#FFFFFF", size=11),
-            margin=dict(l=10, r=10, t=10, b=10),
-            coloraxis_showscale=False
-        )
-        st.plotly_chart(fig_heat, width="stretch")
+        fig_heat = apply_dark_monochrome_theme(fig_heat, height=360, xaxis_title="", yaxis_title="")
+        fig_heat.update_layout(hovermode="closest", coloraxis_showscale=False, margin=dict(l=16, r=16, t=48, b=32))
+        heat_labels = [escape(v).replace("ALLSKY_SFC_SW_DWN", "ALLSKY_<br>SFC_SW_<br>DWN") for v in all_vars]
+        fig_heat.update_xaxes(side="top", tickangle=0, tickvals=all_vars, ticktext=heat_labels, tickfont_size=10)
+        fig_heat.update_yaxes(tickvals=all_vars, ticktext=heat_labels, tickfont_size=10)
+        fig_heat.update_traces(texttemplate="%{z:.2f}", textfont=dict(color="#F5F7FF", size=12))
+        st.plotly_chart(fig_heat, width="stretch", theme=None, config={"displayModeBar": False})
 
         lag_rows = []
         for d_v in d_vars:
@@ -1914,17 +1525,17 @@ if st.session_state["active_case"] is not None:
                 "Lagged r": f"{dc['lag_r']:+.2f}",
                 "Interaction": "INVERSE PARADOX" if dc["paradox_coupled"] else "UNDEFINED" if not np.isfinite(dc["r_annual"]) else "EXPLORATORY ASSOCIATION"
             })
-        st.dataframe(pd.DataFrame(lag_rows), width="stretch", hide_index=True)
+        st.html(html_table(lag_rows))
 
         s_drv = intel["strongest_driver"]
         s_corr = intel["driver_couplings"][s_drv]["r_annual"]
         rel_type = "an inverse (opposite-direction)" if s_corr < 0 else "a direct (same-direction)"
         st.markdown(
             f'<div class="plain-summary">'
-            f'<strong>Plain-Language Coupling Summary:</strong> The largest available annual correlation with <code>{t_var}</code> is '
-            f'<strong>{VARIABLES[s_drv]["name"]} (<code>{s_drv}</code>)</strong> with a correlation of <strong>r = {s_corr:+.2f}</strong>, '
-            f'indicating {rel_type} association when defined. Correlation and the best tested lag do not establish causation; nan means a correlation is undefined. The fitted slope ratio is '
-            f'<strong>{intel["accel_ratio"]:.1f}x</strong> after the inflection year <strong>{intel["tipping_year"]}</strong>.'
+            f'<strong>Plain-Language Coupling Summary:</strong> The largest available annual correlation with <code>{escape(str(t_var))}</code> is '
+            f'<strong>{escape(str(VARIABLES[s_drv]["name"]))} (<code>{escape(str(s_drv))}</code>)</strong> with a correlation of <strong>r = {s_corr:+.2f}</strong>, '
+            f'indicating {escape(str(rel_type))} association when defined. Correlation and the best tested lag do not establish causation; nan means a correlation is undefined. The fitted slope ratio is '
+            f'<strong>{intel["accel_ratio"]:.1f}x</strong> after the inflection year <strong>{escape(str(intel["tipping_year"]))}</strong>.'
             f'</div>',
             unsafe_allow_html=True
         )
@@ -1937,29 +1548,23 @@ if st.session_state["active_case"] is not None:
     col_mod4, col_mod5 = st.container(), st.container()
 
     with col_mod4:
-        st.markdown("### V. Multivariate Sensitivity & Perturbation Simulator")
-        st.markdown(
-            '<div class="editorial-deck">'
-            'What this section does: Lets you manually increase or decrease the three physical driver variables to test '
-            'how the target variable will react in the future according to the trained machine learning model.'
-            '</div>',
-            unsafe_allow_html=True
-        )
+        st.html(with_info(section_header("V", "What if?", "simulator"), 'What this section does: Lets you manually increase or decrease the three physical driver variables to test how the target variable will react in the future according to the trained machine learning model.'))
 
-        sim_cols = st.columns(len(d_vars))
-        baseline_vec = ann_df[all_vars].values[-1].copy()
-        simulated_vec = baseline_vec.copy()
+        with st.container(key="simulator-controls"):
+            sim_cols = st.columns(len(d_vars))
+            baseline_vec = ann_df[all_vars].values[-1].copy()
+            simulated_vec = baseline_vec.copy()
 
-        for i, d_v in enumerate(d_vars):
-            d_std = v_stats[d_v]["std_raw"]
-            with sim_cols[i]:
-                delta_sigma = st.slider(
-                    f"Perturb {d_v} (sigma)",
-                    min_value=-3.0, max_value=3.0, value=0.0, step=0.25,
-                    help=f"1.0 sigma = {d_std:.3f} {VARIABLES[d_v]['unit']}",
-                    disabled=d_std == 0, key=f"sim_{len(st.session_state['watchlist'])}_{meta['region_name']}_{meta['start_year']}_{meta['end_year']}_{t_var}_{d_v}"
-                )
-                simulated_vec[i + 1] = clamp_physical(d_v, baseline_vec[i + 1] + (delta_sigma * d_std))
+            for i, d_v in enumerate(d_vars):
+                d_std = v_stats[d_v]["std_raw"]
+                with sim_cols[i]:
+                    delta_sigma = st.slider(
+                        f"Perturb {d_v} (sigma)",
+                        min_value=-3.0, max_value=3.0, value=0.0, step=0.25,
+                        help=f"1.0 sigma = {d_std:.3f} {VARIABLES[d_v]['unit']}",
+                        disabled=d_std == 0, key=f"sim_{len(st.session_state['watchlist'])}_{meta['region_name']}_{meta['start_year']}_{meta['end_year']}_{t_var}_{d_v}"
+                    )
+                    simulated_vec[i + 1] = clamp_physical(d_v, baseline_vec[i + 1] + (delta_sigma * d_std))
 
         base_pred = float(intel["rf_model"].predict([baseline_vec])[0])
         rf_sim_pred = float(intel["rf_model"].predict([simulated_vec])[0])
@@ -1981,36 +1586,24 @@ if st.session_state["active_case"] is not None:
             f"{sim_diff:+.3f} {VARIABLES[t_var]['unit']}", delta_color="off"
         )
         top_imp_var = max(intel["importances"], key=intel["importances"].get)
-        m_sim3.metric("Dominant ML Predictor", f"{top_imp_var}", f"{intel['importances'][top_imp_var]*100:.1f}% Weight", delta_color="off")
+        with m_sim3:
+            st.html('<div class="stat-tile gauge-tile"><div><div class="tile-label">Dominant ML Predictor</div><div class="stat-value">' + escape(top_imp_var) + '</div><div class="stat-note">' + f'{intel["importances"][top_imp_var]*100:.1f}% Weight' + '</div></div>' + arc_gauge_svg(intel["importances"][top_imp_var]*100) + '</div>')
 
         st.markdown(
             f'<div class="plain-summary">'
             f'<strong>Plain-Language Simulation Takeaway:</strong> Under your selected slider adjustments, '
-            f'{VARIABLES[t_var]["name"]} shifts by <strong>{sim_diff:+.3f} {VARIABLES[t_var]["unit"]}</strong> from its unperturbed next-year prediction. '
-            f'Across the historical record, <code>{top_imp_var}</code> accounts for {intel["importances"][top_imp_var]*100:.1f}% '
+            f'{escape(str(VARIABLES[t_var]["name"]))} shifts by <strong>{sim_diff:+.3f} {escape(str(VARIABLES[t_var]["unit"]))}</strong> from its unperturbed next-year prediction. '
+            f'Across the historical record, <code>{escape(str(top_imp_var))}</code> accounts for {intel["importances"][top_imp_var]*100:.1f}% '
             f'of the Random Forest impurity-based feature importance. These exploratory sensitivities are not causal effects or measured prediction accuracy.'
             f'</div>',
             unsafe_allow_html=True
         )
 
     with col_mod5:
-        st.markdown("### VI. Geospatial Locus & ESP32 Telemetry")
-        st.markdown(
-            '<div class="editorial-deck">'
-            'What this section does: Displays the exact satellite sampling coordinates and mirrors the live 5-LED bitmask '
-            'transmitted over Wi-Fi UDP to the physical ESP32 hardware unit.'
-            '</div>',
-            unsafe_allow_html=True
-        )
+        st.html(with_info(section_header("VI", "Map and device", "telemetry"), 'What this section does: Displays the exact satellite sampling coordinates and mirrors the live 5-LED bitmask transmitted over Wi-Fi UDP to the physical ESP32 hardware unit.'))
 
-        fig_map = go.Figure(go.Scattergeo(lat=[meta["lat"]], lon=[meta["lon"]],
-                                        text=[meta["region_name"]], marker=dict(size=10, color="#FFFFFF")))
-        fig_map.update_geos(showland=True, landcolor="#161616", showocean=True, oceancolor="#000000",
-                            bgcolor="#000000", coastlinecolor="#555555", showcountries=True, countrycolor="#555555",
-                            projection_type="natural earth")
-        fig_map.update_layout(height=330, paper_bgcolor="#000000", margin=dict(l=0, r=0, t=0, b=0))
-        st.plotly_chart(fig_map, width="stretch", theme=None)
-        st.markdown('<div class="plain-summary">The white point marks the requested sampling coordinates. '
+        render_map(meta, height=330, context="telemetry")
+        st.markdown('<div class="plain-summary">The orange point marks the requested sampling coordinates. '
                     'NASA POWER returns a model grid cell, not direct measurements throughout the named region. '
                     'The LED table shows computed conditions; UDP provides no device acknowledgement.</div>', unsafe_allow_html=True)
 
@@ -2024,5 +1617,10 @@ if st.session_state["active_case"] is not None:
             {"Hardware Channel": "LED 4 (White)",  "State": "ACTIVE [1]" if w_on else "OFF [0]", "Scientific Trigger": "Inverse Driver-Target Paradox Coupling"},
             {"Hardware Channel": "LED 5 (Green)",  "State": "ACTIVE [1]" if g_on else "OFF [0]", "Scientific Trigger": "System Within Natural Baseline Variability"}
         ])
-        st.dataframe(led_table, width="stretch", hide_index=True)
-        st.caption(active.get("udp_status", ""))
+        st.html('<div class="led-grid">' + ''.join(
+            led_tile(row["Hardware Channel"], row["State"] == "ACTIVE [1]", row["Scientific Trigger"], color)
+            for row, color in zip(led_table.to_dict("records"), ["blue", "orange", "red", "white", "green"])
+        ) + '</div>')
+        st.html('<div class="device-link">' + icon("link") + '<span>Device link · ' + escape(active.get("udp_status", "")) + '</span></div>')
+
+st.html(footer())

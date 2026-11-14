@@ -11,7 +11,7 @@ python -m pip install -r requirements.txt
 python -m streamlit run APP.PY
 ```
 
-The black-and-white theme is configured in `.streamlit/config.toml`. Gemini is optional: put `GEMINI_API_KEY` in the local `.streamlit/secrets.toml` or enter it in the sidebar. The deterministic catalog router works without a key; NASA acquisition and arbitrary-city geocoding require internet access. Existing credentials should remain local.
+The midnight-blue, mint and violet glass theme lives in `concord_theme.py` and `.streamlit/config.toml`; see [DESIGN.md](DESIGN.md) for tokens and validation. Gemini is optional: put `GEMINI_API_KEY` in the local `.streamlit/secrets.toml` or enter it in the sidebar. The deterministic catalog router works without a key; NASA acquisition and arbitrary-city geocoding require internet access. Existing credentials should remain local.
 
 Choose a guided biome/question/record window or enter a research prompt. The optional City, Country field overrides the prompt's location. Manual coordinates and variable settings apply to the direct-prompt action. Blank the ESP32 address to disable UDP; Firebase stays disabled unless a URL is supplied.
 

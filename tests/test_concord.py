@@ -194,8 +194,10 @@ class StreamlitTests(unittest.TestCase):
         for option in at.radio[0].options:
             at.radio[0].set_value(option).run()
             self.assertFalse(at.exception, str(at.exception))
+        original_prediction = at.metric[1].value
         next(s for s in at.slider if s.label.startswith("Perturb")).set_value(1.0).run()
         self.assertFalse(at.exception, str(at.exception))
+        self.assertNotEqual(at.metric[1].value, original_prediction)
 
     def test_demo_network_failure_stays_in_ui(self):
         with patch("requests.get", side_effect=requests.Timeout("offline")):
@@ -214,13 +216,13 @@ class StreamlitTests(unittest.TestCase):
         with patch("streamlit.file_uploader", side_effect=uploaded):
             at = self.app().run()
             next(w for w in at.text_input if w.label == "ESP32 Local IP Address").set_value("").run()
-            next(b for b in at.button if b.label == "Analyze Uploaded CSV Dataset").click().run()
+            next(b for b in at.button if b.label == "Analyze CSV").click().run()
             self.assertFalse(at.exception, str(at.exception))
             self.assertIsNotNone(at.session_state["active_case"])
             self.assertEqual(at.session_state["active_case"]["intel"]["target_var"], "CUSTOM_TEMP")
             at.run()
             self.assertFalse(at.exception, str(at.exception))
-            next(b for b in at.button if b.label.startswith("Load Case")).click().run()
+            next(b for b in at.button if (b.key or "").startswith("load_watch_")).click().run()
             self.assertFalse(at.exception, str(at.exception))
 
     def test_constant_case_simulation_does_not_show_nan(self):
