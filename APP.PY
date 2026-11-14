@@ -1,4 +1,5 @@
 import io
+import re
 import json
 import socket
 import requests
@@ -6,10 +7,11 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
+import plotly.express as px
 from scipy import stats
-from sklearn.ensemble import IsolationForest
+from sklearn.ensemble import RandomForestRegressor, IsolationForest
 
-# --- OPTIONAL INTEL OPENVINO CHECK (Casablanca Workshop Resource) ---
+# --- OPTIONAL INTEL OPENVINO RUNTIME CHECK ---
 try:
     import openvino as ov
     import openvino.opset13 as ops
@@ -17,177 +19,226 @@ try:
 except ImportError:
     OPENVINO_AVAILABLE = False
 
-# --- PAGE CONFIGURATION ---
+# ==============================================================================
+# PAGE & SESSION STATE INITIALIZATION
+# ==============================================================================
 st.set_page_config(
-    page_title="Team Concord | NASA Earth System Trend Detective",
+    page_title="Team Concord | Earth System Trend Detective",
     page_icon="🛰️",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# --- 1. EARTH SCIENCE VARIABLES CATALOG (MERRA-2 / GLDAS / MODIS / GPM) ---
+if "watchlist" not in st.session_state:
+    st.session_state["watchlist"] = []
+
+if "active_case" not in st.session_state:
+    st.session_state["active_case"] = None
+
+# ==============================================================================
+# EARTH SCIENCE VARIABLES CATALOG (MERRA-2 / GLDAS / GPM / CERES)
+# ==============================================================================
 VARIABLES = {
     "T2M": {
         "name": "Surface Air Temperature (2m)",
         "unit": "°C",
         "mission": "NASA MERRA-2 / AIRS",
-        "definition": "Average air temperature at 2 meters above Earth's surface, essential for tracking regional warming trends."
+        "category": "Thermal",
+        "desc": "Air temperature at 2 meters above Earth's surface, primary indicator of regional warming."
     },
     "PRECTOTCORR": {
         "name": "Bias-Corrected Precipitation",
         "unit": "mm/day",
         "mission": "NASA GPM / MERRA-2",
-        "definition": "Total daily rain and snow fall rate, used to detect shifting monsoons, droughts, or extreme rainfall."
+        "category": "Hydrological",
+        "desc": "Total daily rain and snow fall rate, tracking droughts, monsoons, and extreme rainfall."
     },
     "GWETTOP": {
         "name": "Surface Soil Wetness (Top 5cm)",
         "unit": "fraction (0-1)",
         "mission": "NASA GLDAS / SMAP",
-        "definition": "Relative saturation of the top 5cm of soil, a direct indicator of agricultural drought and evaporation stress."
+        "category": "Hydrological",
+        "desc": "Relative water saturation in the top 5cm of soil, measuring agricultural drought and evaporation."
     },
     "QV2M": {
         "name": "Specific Humidity (2m)",
         "unit": "g/kg",
         "mission": "NASA MERRA-2 / MODIS",
-        "definition": "Concentration of water vapor in the air, driving atmospheric moisture transport and extreme heat index."
+        "category": "Hydrological",
+        "desc": "Mass of water vapor per kilogram of air, driving atmospheric moisture transport and heat stress."
     },
     "ALLSKY_SFC_SW_DWN": {
-        "name": "Surface Solar Irradiance (All-Sky)",
+        "name": "Surface Solar Irradiance",
         "unit": "W/m²",
         "mission": "NASA CERES / MERRA-2",
-        "definition": "Solar radiation reaching Earth's surface, reflecting cloud cover trends and atmospheric aerosols."
+        "category": "Radiative",
+        "desc": "Shortwave solar radiation reaching the surface, influenced by cloud cover and aerosols."
+    },
+    "WS2M": {
+        "name": "Wind Speed at 2 Meters",
+        "unit": "m/s",
+        "mission": "NASA MERRA-2",
+        "category": "Atmospheric Dynamics",
+        "desc": "Near-surface wind speed driving surface evaporation, dust transport, and coastal upwelling."
     }
 }
 
-# --- 2. AI DETECTIVE QUESTIONNAIRE KNOWLEDGE BASE ---
-DETECTIVE_SOLUTIONS = {
-    ("Semi-Arid Plain / Agricultural Land (e.g., Morocco)", "Drought, Soil Drying & Crop Stress"): {
-        "lat": 33.26, "lon": -7.58, "var1": "GWETTOP", "var2": "T2M",
-        "region_label": "Berrechid / Chaouia Plain, Morocco",
-        "hypothesis": (
-            "In semi-arid agricultural plains like Berrechid and Chaouia, rising Surface Air Temperature (T2M) "
-            "increases potential evapotranspiration, driving a downward trend in Surface Soil Wetness (GWETTOP). "
-            "Notice how the two variables trend in opposite directions from the same warming process."
-        )
-    },
-    ("Tropical Rainforest (e.g., Amazon Basin)", "Deforestation & Water Cycle Shift"): {
-        "lat": -3.46, "lon": -62.21, "var1": "PRECTOTCORR", "var2": "T2M",
-        "region_label": "Central Amazon Basin, Brazil",
-        "hypothesis": (
-            "In tropical rainforests, canopy stress and regional warming (T2M) disrupt evapotranspiration "
-            "recycling, causing localized precipitation (PRECTOTCORR) and soil moisture patterns to shift."
-        )
-    },
-    ("Coastal Megacity (e.g., Grand Casablanca)", "Urban Heat & Atmospheric Moisture"): {
-        "lat": 33.57, "lon": -7.59, "var1": "T2M", "var2": "QV2M",
-        "region_label": "Grand Casablanca Coast, Morocco",
-        "hypothesis": (
-            "In coastal urban atmospheres, ocean warming increases atmospheric water vapor (QV2M) while urban "
-            "heat retention raises air temperatures (T2M), creating a compounding upward trend."
-        )
-    },
-    ("Polar / Cryosphere (e.g., High Arctic)", "Accelerated Warming & Ice-Albedo Feedback"): {
-        "lat": 78.22, "lon": 15.63, "var1": "T2M", "var2": "PRECTOTCORR",
-        "region_label": "Svalbard / High Arctic",
-        "hypothesis": (
-            "Loss of reflective sea ice exposes darker ocean water, causing Arctic air temperatures (T2M) "
-            "to rise rapidly while warmer air holds and precipitates more moisture (PRECTOTCORR)."
-        )
-    }
-}
+# ==============================================================================
+# STEP 1: AI AGENT ROUTER (USER PROMPT -> MULTI-VARIABLE JSON PAYLOAD)
+# ==============================================================================
+def parse_user_prompt_with_ai(user_prompt, gemini_api_key=""):
+    """
+    Uses Gemini 2.5 Flash (or a deterministic fallback parser) to convert a natural 
+    language investigation request into coordinates, time range, 1 Target Variable, 
+    and 3 physical Driver Variables.
+    """
+    valid_vars = list(VARIABLES.keys())
+
+    if gemini_api_key.strip():
+        try:
+            url = (
+                "https://generativelanguage.googleapis.com/v1beta/models/"
+                f"gemini-2.5-flash:generateContent?key={gemini_api_key.strip()}"
+            )
+            system_instruction = (
+                "You are a NASA Earth Science AI Router. Given the user's investigation prompt, "
+                "return ONLY a valid JSON object (no markdown backticks) with these exact keys:\n"
+                "{\n"
+                '  "region_name": "String name of region",\n'
+                '  "lat": float (-90 to 90),\n'
+                '  "lon": float (-180 to 180),\n'
+                '  "start_year": int (between 1981 and 2015),\n'
+                '  "end_year": int (between 2020 and 2025),\n'
+                f'  "target_var": one of {valid_vars},\n'
+                f'  "driver_vars": list of exactly 3 distinct variables from {valid_vars} (excluding target_var),\n'
+                '  "hypothesis": "1-sentence physical explanation of how the drivers affect the target variable in this region."\n'
+                "}"
+            )
+            payload = {
+                "contents": [{"parts": [{"text": f"{system_instruction}\n\nUser Prompt: {user_prompt}"}]}]
+            }
+            resp = requests.post(url, json=payload, timeout=10)
+            if resp.status_code == 200:
+                raw_text = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+                raw_text = re.sub(r"^```json\s*|\s*```$", "", raw_text, flags=re.MULTILINE).strip()
+                parsed = json.loads(raw_text)
+                if parsed.get("target_var") in valid_vars:
+                    drivers = [v for v in parsed.get("driver_vars", []) if v in valid_vars and v != parsed["target_var"]]
+                    for fallback_v in valid_vars:
+                        if len(drivers) < 3 and fallback_v != parsed["target_var"] and fallback_v not in drivers:
+                            drivers.append(fallback_v)
+                    parsed["driver_vars"] = drivers[:3]
+                    parsed["router_source"] = "Gemini 2.5 Flash Live Agent"
+                    return parsed
+        except Exception:
+            pass
+
+    # Deterministic Intelligent Fallback Router (works offline or without API key)
+    p_low = user_prompt.lower()
+    if "amazon" in p_low or "rainforest" in p_low or "brazil" in p_low:
+        base = {
+            "region_name": "Amazon Rainforest Basin, Brazil",
+            "lat": -3.46, "lon": -62.21, "start_year": 1990, "end_year": 2025,
+            "target_var": "PRECTOTCORR", "driver_vars": ["T2M", "QV2M", "ALLSKY_SFC_SW_DWN"],
+            "hypothesis": "Canopy warming (T2M) and solar radiation shifts alter atmospheric humidity (QV2M) and rainfall recycling (PRECTOTCORR)."
+        }
+    elif "arctic" in p_low or "polar" in p_low or "ice" in p_low or "greenland" in p_low:
+        base = {
+            "region_name": "Svalbard / High Arctic",
+            "lat": 78.22, "lon": 15.63, "start_year": 1990, "end_year": 2025,
+            "target_var": "T2M", "driver_vars": ["ALLSKY_SFC_SW_DWN", "QV2M", "PRECTOTCORR"],
+            "hypothesis": "Ice-albedo feedback amplifies surface warming (T2M), increasing specific humidity (QV2M) and polar precipitation."
+        }
+    elif "tangier" in p_low or "north morocco" in p_low or "rif" in p_low:
+        base = {
+            "region_name": "Tangier / Northern Morocco",
+            "lat": 35.76, "lon": -5.83, "start_year": 1990, "end_year": 2025,
+            "target_var": "PRECTOTCORR", "driver_vars": ["T2M", "QV2M", "WS2M"],
+            "hypothesis": "Mediterranean moisture transport (QV2M, WS2M) interacts with rising air temperatures (T2M) to shift coastal rainfall regimes."
+        }
+    elif "sahara" in p_low or "errachidia" in p_low or "desert" in p_low or "ouarzazate" in p_low:
+        base = {
+            "region_name": "Pre-Sahara / Ouarzazate Basin, Morocco",
+            "lat": 30.92, "lon": -6.90, "start_year": 1990, "end_year": 2025,
+            "target_var": "GWETTOP", "driver_vars": ["T2M", "ALLSKY_SFC_SW_DWN", "PRECTOTCORR"],
+            "hypothesis": "Intense solar irradiance and rising temperatures accelerate arid topsoil desiccation while sporadic rainfall creates flash anomalies."
+        }
+    else:
+        base = {
+            "region_name": "Berrechid / Grand Casablanca Plain, Morocco",
+            "lat": 33.26, "lon": -7.58, "start_year": 1990, "end_year": 2025,
+            "target_var": "GWETTOP", "driver_vars": ["T2M", "PRECTOTCORR", "ALLSKY_SFC_SW_DWN"],
+            "hypothesis": "Rising air temperature (T2M) and solar radiation (ALLSKY_SFC_SW_DWN) accelerate evapotranspiration, depleting topsoil moisture (GWETTOP) faster than rainfall replenishes it."
+        }
+
+    base["router_source"] = "Built-in Domain Knowledge Router"
+    return base
 
 
-# --- 3. DATA INGESTION PIPELINE (LIVE NASA API + GIOVANNI CSV LOADER) ---
+# ==============================================================================
+# STEP 2 & 3.1: NASA API FETCHER + DATA TABLE STRUCTURING
+# ==============================================================================
 @st.cache_data(ttl=3600)
-def fetch_nasa_merra2_live(lat, lon, var1, var2, start_year, end_year):
-    """Fetches real monthly satellite/model time series from NASA POWER (MERRA-2 / GLDAS)."""
-    params = f"{var1},{var2}" if var1 != var2 else var1
+def fetch_nasa_multivariable_data(lat, lon, start_year, end_year, var_list):
+    """
+    Queries NASA POWER API (MERRA-2 & GLDAS satellite/model archive) for all 4 variables 
+    simultaneously and returns a clean monthly Pandas DataFrame.
+    """
+    unique_vars = list(dict.fromkeys(var_list))
+    params_str = ",".join(unique_vars)
     url = (
         f"https://power.larc.nasa.gov/api/temporal/monthly/point"
-        f"?parameters={params}&community=SB&longitude={lon}&latitude={lat}"
+        f"?parameters={params_str}&community=SB&longitude={lon}&latitude={lat}"
         f"&start={start_year}&end={end_year}&format=JSON"
     )
-    resp = requests.get(url, timeout=15)
+    resp = requests.get(url, timeout=20)
     resp.raise_for_status()
-    raw = resp.json()["properties"]["parameter"]
+    param_data = resp.json()["properties"]["parameter"]
 
+    time_keys = sorted(list(param_data[unique_vars[0]].keys()))
     records = []
-    for ym, val1 in raw[var1].items():
-        if ym.endswith("13"):  # Skip annual summary key
+
+    for ym in time_keys:
+        if ym.endswith("13"):  # Skip NASA's annual average summary key
             continue
-        val2 = raw[var2].get(ym, -999)
-        if val1 != -999 and val2 != -999:
-            year = int(ym[:4])
-            month = int(ym[4:6])
-            records.append({
-                "date": pd.Timestamp(year=year, month=month, day=1),
-                "year": year,
-                "month": month,
-                var1: float(val1),
-                var2: float(val2)
-            })
+        row = {
+            "date": pd.Timestamp(year=int(ym[:4]), month=int(ym[4:6]), day=1),
+            "year": int(ym[:4]),
+            "month": int(ym[4:6])
+        }
+        valid_row = True
+        for v in unique_vars:
+            val = float(param_data[v].get(ym, -999.0))
+            if val <= -990.0:
+                valid_row = False
+                break
+            row[v] = val
+        if valid_row:
+            records.append(row)
+
     return pd.DataFrame(records).sort_values("date").reset_index(drop=True)
 
 
-def parse_giovanni_csv(uploaded_file):
-    """Parses downloaded NASA Giovanni or AppEEARS CSV sheets (skips metadata header lines)."""
-    content = uploaded_file.getvalue().decode("utf-8", errors="ignore")
-    lines = content.splitlines()
-
-    start_idx = 0
-    for i, line in enumerate(lines):
-        low = line.lower()
-        if low.startswith("time,") or low.startswith("date,") or low.startswith("year,") or low.startswith("timestamp,"):
-            start_idx = i
-            break
-
-    csv_body = "\n".join(lines[start_idx:])
-    df = pd.read_csv(io.StringIO(csv_body))
-    df.columns = [c.strip() for c in df.columns]
-
-    time_col = df.columns[0]
-    val_col1 = df.columns[1]
-    val_col2 = df.columns[2] if len(df.columns) > 2 else df.columns[1]
-
-    df["date"] = pd.to_datetime(df[time_col], errors="coerce")
-    df = df.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
-    df["year"] = df["date"].dt.year
-    df["month"] = df["date"].dt.month
-    df[val_col1] = pd.to_numeric(df[val_col1], errors="coerce")
-    df[val_col2] = pd.to_numeric(df[val_col2], errors="coerce")
-    df = df.dropna(subset=[val_col1, val_col2]).reset_index(drop=True)
-    return df, val_col1, val_col2
+# ==============================================================================
+# STEP 3.2: DESEASONALIZATION (REMOVING THE SEASONAL ZIG-ZAG CYCLE)
+# ==============================================================================
+def deseasonalize_dataframe(df, var_list):
+    """
+    Removes the regular monthly seasonal cycle (summer/winter wave) from each variable 
+    so true underlying anomalies and multi-decade trends are exposed.
+    """
+    df_clean = df.copy()
+    for v in var_list:
+        monthly_climatology = df_clean.groupby("month")[v].transform("mean")
+        df_clean[f"{v}_anom"] = df_clean[v] - monthly_climatology
+    return df_clean
 
 
-def generate_sample_giovanni_csv():
-    """Generates a ready-to-download NASA Giovanni format CSV for testing."""
-    years = np.repeat(np.arange(1990, 2026), 12)
-    months = np.tile(np.arange(1, 13), 36)
-    t_idx = np.arange(len(years))
-    # Simulated warming + soil drying with seasonal cycle
-    temp = 18.5 + 0.0038 * t_idx + 6.5 * np.sin(2 * np.pi * months / 12.0) + np.random.normal(0, 0.6, len(years))
-    soil = 0.42 - 0.00025 * t_idx - 0.12 * np.sin(2 * np.pi * months / 12.0) + np.random.normal(0, 0.02, len(years))
-    out_df = pd.DataFrame({
-        "time": [f"{y}-{m:02d}-01" for y, m in zip(years, months)],
-        "MERRA2_T2M_degC": np.round(temp, 3),
-        "GLDAS_SoilWetness": np.round(np.clip(soil, 0.05, 0.95), 3)
-    })
-    header = (
-        "NASA Giovanni Area-Averaged Time Series Export\n"
-        "Region: Morocco Chaouia Plain (33.26N, 7.58W)\n"
-    )
-    return header + out_df.to_csv(index=False)
-
-
-# --- 4. STATISTICAL SIGNIFICANCE & AI ENGINE (MANN-KENDALL + T-TEST + OPENVINO) ---
-def deseasonalize_series(df, col):
-    """Removes monthly seasonal cycles to reveal underlying long-term trends."""
-    monthly_means = df.groupby("month")[col].transform("mean")
-    return df[col] - monthly_means
-
-
-def mann_kendall_test(y):
-    """Performs non-parametric Mann-Kendall monotonic trend test + Sen's slope."""
+# ==============================================================================
+# STEP 3.3: 4-LAYER MULTI-VARIABLE INTELLIGENCE ENGINE
+# ==============================================================================
+def mann_kendall_math(y):
+    """Calculates Mann-Kendall S statistic, Z-score, p-value, and Sen's median slope."""
     n = len(y)
     s = 0
     slopes = []
@@ -203,406 +254,629 @@ def mann_kendall_test(y):
         z = (s + 1) / np.sqrt(var_s)
     else:
         z = 0.0
-    p_value = 2.0 * (1.0 - stats.norm.cdf(abs(z)))
+    p_val = 2.0 * (1.0 - stats.norm.cdf(abs(z)))
     sens_slope = float(np.median(slopes)) if slopes else 0.0
-    return z, p_value, sens_slope
+    return z, p_val, sens_slope
 
 
-def forecast_with_openvino(years, values, horizon=10):
+def run_multivariable_intelligence_engine(df_monthly, target_var, driver_vars):
     """
-    Trains an autoregressive sliding-window model combined with linear trend 
-    and accelerates inference using Intel OpenVINO Runtime (if installed).
+    Executes the 4 analytical layers after Step 3.2 deseasonalization:
+      Layer 1: Per-variable Mann-Kendall, Student's t-test, and 95% Confidence Intervals.
+      Layer 2: Driver-Response Cross-Correlation, Time-Lag (0-3 mos), & Paradox Detection.
+      Layer 3: CUSUM Tipping-Point / Regime Shift Year & Acceleration Ratio.
+      Layer 4: Multivariate AI Forecast (Random Forest + OpenVINO IR Graph) & What-If Model.
     """
-    window = min(5, max(2, len(values) // 4))
-    X, y = [], []
-    for i in range(len(values) - window):
-        X.append(values[i:i + window])
-        y.append(values[i + window])
-    X = np.array(X, dtype=np.float32)
-    y = np.array(y, dtype=np.float32)
+    all_vars = [target_var] + driver_vars
+    df_deseason = deseasonalize_dataframe(df_monthly, all_vars)
 
-    X_aug = np.hstack([X, np.ones((X.shape[0], 1), dtype=np.float32)])
-    weights, _, _, _ = np.linalg.lstsq(X_aug, y, rcond=None)
-    W = weights[:-1].reshape(window, 1).astype(np.float32)
-    b = np.array([weights[-1]], dtype=np.float32)
+    # Annual aggregation of raw and deseasonalized anomalies
+    agg_dict = {v: "mean" for v in all_vars}
+    for v in all_vars:
+        agg_dict[f"{v}_anom"] = "mean"
+    annual_df = df_deseason.groupby("year").agg(agg_dict).reset_index()
+    years = annual_df["year"].values
 
-    compiled_model = None
-    engine_name = "NumPy / Scikit-Learn Autoregressive Engine"
+    # --- LAYER 1: BASELINE SIGNIFICANCE TESTS FOR ALL 4 VARIABLES ---
+    var_stats = {}
+    for v in all_vars:
+        y_anom = annual_df[f"{v}_anom"].values
+        y_raw = annual_df[v].values
 
+        lin = stats.linregress(years, y_anom)
+        t_crit = stats.t.ppf(0.975, max(1, len(years) - 2))
+        ci_95_dec = t_crit * lin.stderr * 10.0
+        mk_z, mk_p, sens_slope = mann_kendall_math(y_anom)
+
+        # Unsupervised Isolation Forest for extreme year detection
+        iso = IsolationForest(contamination=0.12, random_state=42)
+        anom_flags = iso.fit_predict(y_anom.reshape(-1, 1)) == -1
+
+        var_stats[v] = {
+            "mean_raw": float(np.mean(y_raw)),
+            "std_raw": float(np.std(y_raw)) if np.std(y_raw) > 0 else 1.0,
+            "slope_yr": float(lin.slope),
+            "slope_dec": float(lin.slope * 10.0),
+            "sens_slope_dec": float(sens_slope * 10.0),
+            "ci_95_dec": float(ci_95_dec),
+            "ttest_p": float(lin.pvalue),
+            "mk_z": float(mk_z),
+            "mk_p": float(mk_p),
+            "r_squared": float(lin.rvalue ** 2),
+            "significant": bool((mk_p < 0.05) and (lin.pvalue < 0.05)),
+            "direction": "INCREASING" if lin.slope > 0 else "DECREASING",
+            "extreme_years": years[anom_flags].tolist(),
+            "extreme_vals": y_raw[anom_flags].tolist()
+        }
+
+    # --- LAYER 2: CROSS-CORRELATION MATRIX, TIME-LAG & PARADOX DISCOVERY ---
+    anom_cols = [f"{v}_anom" for v in all_vars]
+    corr_matrix = df_deseason[anom_cols].corr()
+    corr_matrix.index = all_vars
+    corr_matrix.columns = all_vars
+
+    driver_couplings = {}
+    strongest_driver = driver_vars[0]
+    max_corr_mag = -1.0
+
+    for d_var in driver_vars:
+        r_annual, p_annual = stats.pearsonr(annual_df[f"{target_var}_anom"], annual_df[f"{d_var}_anom"])
+
+        # Test monthly time lags (0, 1, 2, 3 months) to see if driver precedes target
+        best_lag = 0
+        best_lag_r = float(df_deseason[f"{target_var}_anom"].corr(df_deseason[f"{d_var}_anom"]))
+        for lag in [1, 2, 3]:
+            r_lag = float(df_deseason[f"{target_var}_anom"].corr(df_deseason[f"{d_var}_anom"].shift(lag)))
+            if abs(r_lag) > abs(best_lag_r):
+                best_lag_r = r_lag
+                best_lag = lag
+
+        opposite_slopes = (var_stats[target_var]["slope_dec"] * var_stats[d_var]["slope_dec"]) < 0
+        paradox_coupled = bool(opposite_slopes and (abs(r_annual) >= 0.35))
+
+        driver_couplings[d_var] = {
+            "r_annual": float(r_annual),
+            "p_annual": float(p_annual),
+            "best_lag_months": int(best_lag),
+            "lag_r": float(best_lag_r),
+            "opposite_slopes": bool(opposite_slopes),
+            "paradox_coupled": paradox_coupled
+        }
+
+        if abs(r_annual) > max_corr_mag:
+            max_corr_mag = abs(r_annual)
+            strongest_driver = d_var
+
+    # --- LAYER 3: TIPPING-POINT / REGIME SHIFT DETECTION (CUSUM) ---
+    target_anom = annual_df[f"{target_var}_anom"].values
+    cusum = np.cumsum(target_anom - np.mean(target_anom))
+    margin = max(4, len(years) // 5)
+    valid_cusum = np.abs(cusum[margin:-margin])
+    tip_idx = int(np.argmax(valid_cusum)) + margin
+    tipping_year = int(years[tip_idx])
+
+    slope_pre = float(stats.linregress(years[:tip_idx], target_anom[:tip_idx]).slope * 10.0)
+    slope_post = float(stats.linregress(years[tip_idx:], target_anom[tip_idx:]).slope * 10.0)
+    accel_ratio = abs(slope_post) / max(abs(slope_pre), 1e-6)
+    regime_shifted = bool(accel_ratio >= 1.4 and var_stats[target_var]["ttest_p"] < 0.10)
+
+    # --- LAYER 4: MULTIVARIATE AI FORECASTING (RANDOM FOREST + OPENVINO) ---
+    # Feature matrix uses all 4 variables at year t to predict Target at year t+1
+    X_raw = annual_df[all_vars].values
+    X_train = X_raw[:-1]
+    y_train = annual_df[target_var].values[1:]
+
+    rf_model = RandomForestRegressor(n_estimators=120, max_depth=6, random_state=42)
+    rf_model.fit(X_train, y_train)
+
+    # Also fit a linear multivariate weight matrix for OpenVINO IR Graph acceleration
+    X_aug = np.hstack([X_train, np.ones((X_train.shape[0], 1), dtype=np.float32)]).astype(np.float32)
+    weights, _, _, _ = np.linalg.lstsq(X_aug, y_train.astype(np.float32), rcond=None)
+    W_mv = weights[:-1].reshape(len(all_vars), 1).astype(np.float32)
+    b_mv = np.array([weights[-1]], dtype=np.float32)
+
+    ov_infer_req = None
+    ai_engine_label = "Multivariate Random Forest + Linear Coupling"
     if OPENVINO_AVAILABLE:
         try:
-            param = ops.parameter([1, window], np.float32, name="input_window")
-            const_w = ops.constant(W, np.float32)
-            const_b = ops.constant(b, np.float32)
-            matmul = ops.matmul(param, const_w, transpose_a=False, transpose_b=False)
-            add_op = ops.add(matmul, const_b)
-            ov_model = ov.Model([add_op], [param], "concord_openvino_forecaster")
-            core = ov.Core()
-            compiled_model = core.compile_model(ov_model, "CPU")
-            infer_req = compiled_model.create_infer_request()
-            engine_name = "Intel OpenVINO CPU IR Graph"
+            param = ops.parameter([1, len(all_vars)], np.float32, name="multivar_input")
+            matmul = ops.matmul(param, ops.constant(W_mv, np.float32), transpose_a=False, transpose_b=False)
+            add_op = ops.add(matmul, ops.constant(b_mv, np.float32))
+            ov_model = ov.Model([add_op], [param], "concord_multivar_forecaster")
+            compiled = ov.Core().compile_model(ov_model, "CPU")
+            ov_infer_req = compiled.create_infer_request()
+            ai_engine_label = "Intel OpenVINO IR Graph + Random Forest Ensemble"
         except Exception:
-            compiled_model = None
+            ov_infer_req = None
 
-    history = list(values[-window:].astype(np.float32))
-    preds = []
-    for _ in range(horizon):
-        inp = np.array([history[-window:]], dtype=np.float32)
-        if compiled_model is not None:
-            res = infer_req.infer({0: inp})
-            next_val = float(list(res.values())[0].flatten()[0])
+    future_years = np.arange(int(years[-1]) + 1, int(years[-1]) + 11)
+    curr_vec = X_raw[-1].copy().astype(np.float32)
+    forecast_vals = []
+
+    for _ in range(10):
+        rf_pred = float(rf_model.predict([curr_vec])[0])
+        if ov_infer_req is not None:
+            ov_res = ov_infer_req.infer({0: curr_vec.reshape(1, -1)})
+            lin_pred = float(list(ov_res.values())[0].flatten()[0])
         else:
-            next_val = float(np.dot(inp, W).flatten()[0] + b[0])
-        preds.append(next_val)
-        history.append(next_val)
+            lin_pred = float(np.dot(curr_vec, W_mv).flatten()[0] + b_mv[0])
 
-    future_years = np.arange(int(years[-1]) + 1, int(years[-1]) + horizon + 1)
-    return future_years, np.array(preds), engine_name
+        # Ensemble blend of non-linear Random Forest + OpenVINO linear coupling + trend slope
+        next_target = 0.50 * rf_pred + 0.30 * lin_pred + 0.20 * (curr_vec[0] + var_stats[target_var]["slope_yr"])
+        forecast_vals.append(next_target)
 
+        # Advance state vector for next year
+        curr_vec[0] = next_target
+        for idx, d_var in enumerate(driver_vars, start=1):
+            curr_vec[idx] += var_stats[d_var]["slope_yr"]
 
-def analyze_timeseries(df, col):
-    """Full statistical & AI analysis for an Earth science variable."""
-    df["anom_" + col] = deseasonalize_series(df, col)
-    annual = df.groupby("year").agg(
-        raw_mean=(col, "mean"),
-        anom_mean=("anom_" + col, "mean")
-    ).reset_index()
+    # Calculate feature importances from Random Forest
+    importances = dict(zip(all_vars, rf_model.feature_importances_))
 
-    x = annual["year"].values
-    y = annual["raw_mean"].values
-
-    # 1. Linear Regression + Student's t-test
-    lin = stats.linregress(x, y)
-    slope_yr = lin.slope
-    slope_dec = slope_yr * 10.0
-    ttest_p = lin.pvalue
-
-    # 2. 95% Confidence Interval
-    t_crit = stats.t.ppf(0.975, max(1, len(x) - 2))
-    ci_95_dec = t_crit * lin.stderr * 10.0
-
-    # 3. Mann-Kendall Non-Parametric Trend Test
-    mk_z, mk_p, sens_slope = mann_kendall_test(y)
-
-    # 4. Isolation Forest Anomaly Detection (flags extreme climate years)
-    iso = IsolationForest(contamination=0.12, random_state=42)
-    annual["is_anomaly"] = iso.fit_predict(annual[["raw_mean"]].values) == -1
-    anomalies_df = annual[annual["is_anomaly"]]
-
-    # 5. OpenVINO 10-Year AI Forecast
-    future_years, forecast_y, ai_engine = forecast_with_openvino(x, y, horizon=10)
-
-    significant = (mk_p < 0.05) and (ttest_p < 0.05)
-    direction = "INCREASING" if slope_yr > 0 else "DECREASING"
+    # --- STEP 3.5: 5-LED BITMASK GENERATION (BLUE, ORANGE, RED, WHITE, GREEN) ---
+    hydro_vars = {"PRECTOTCORR", "GWETTOP", "QV2M"}
+    led_blue   = int(any(var_stats[v]["significant"] for v in all_vars if v in hydro_vars))
+    led_orange = int(regime_shifted)
+    led_red    = int(var_stats[target_var]["mk_p"] < 0.01)
+    led_white  = int(any(driver_couplings[d]["paradox_coupled"] for d in driver_vars))
+    led_green  = int((not var_stats[target_var]["significant"]) and (not regime_shifted))
+    led_bitmask = f"{led_blue}{led_orange}{led_red}{led_white}{led_green}"
 
     return {
-        "annual": annual,
-        "anomalies": anomalies_df,
-        "slope_yr": slope_yr,
-        "slope_dec": slope_dec,
-        "ci_95_dec": ci_95_dec,
-        "ttest_p": ttest_p,
-        "mk_z": mk_z,
-        "mk_p": mk_p,
-        "sens_slope_dec": sens_slope * 10.0,
-        "significant": significant,
-        "direction": direction,
+        "df_monthly": df_deseason,
+        "annual_df": annual_df,
+        "target_var": target_var,
+        "driver_vars": driver_vars,
+        "all_vars": all_vars,
+        "var_stats": var_stats,
+        "corr_matrix": corr_matrix,
+        "driver_couplings": driver_couplings,
+        "strongest_driver": strongest_driver,
+        "tipping_year": tipping_year,
+        "slope_pre": slope_pre,
+        "slope_post": slope_post,
+        "accel_ratio": accel_ratio,
+        "regime_shifted": regime_shifted,
         "future_years": future_years,
-        "forecast_y": forecast_y,
-        "ai_engine": ai_engine,
-        "r_squared": lin.rvalue ** 2
+        "forecast_vals": np.array(forecast_vals),
+        "rf_model": rf_model,
+        "importances": importances,
+        "ai_engine_label": ai_engine_label,
+        "led_bitmask": led_bitmask
     }
 
 
-# --- 5. OPTIONAL LLM AGENT CALL (GEMINI API) + BUILT-IN SCIENTIFIC AGENT ---
-def generate_ai_scientific_brief(var1, var2, res1, res2, corr, region_label, hypothesis, gemini_api_key=""):
-    """Generates an educational Earth system interpretation of the statistical numbers."""
-    paradox_flag = (res1["slope_yr"] * res2["slope_yr"]) < 0
-    default_brief = (
-        f"### 🧠 AI Detective Synthesis — {region_label}\n"
-        f"- **Primary Finding (`{var1}`):** Moving in an **{res1['direction']}** direction at "
-        f"**{res1['slope_dec']:+.3f} per decade** (±{res1['ci_95_dec']:.3f} at 95% CI). "
-        f"Mann-Kendall $Z = {res1['mk_z']:.2f}$ ($p = {res1['mk_p']:.4f}$) and Student's t-test ($p = {res1['ttest_p']:.4f}$) "
-        f"confirm this trend is **{'STATISTICALLY SIGNIFICANT' if res1['significant'] else 'NOT statistically significant (within natural variability)'}**.\n"
-        f"- **Secondary Variable (`{var2}`):** Moving in an **{res2['direction']}** direction at "
-        f"**{res2['slope_dec']:+.3f} per decade** (Mann-Kendall $p = {res2['mk_p']:.4f}$).\n"
-        f"- **Multi-Variable Interaction ($r = {corr:+.2f}$):** "
-        f"{'⚠️ **Opposite Trend / Regional Paradox Detected!** Even though a single environmental process drives the region, one variable rises while the other falls.' if paradox_flag else 'Both variables are trending in the same direction over this period.'}\n"
-        f"- **Physical Earth System Mechanism:** {hypothesis}"
-    )
+# ==============================================================================
+# STEP 3.5: ESP32 UDP + FIREBASE HARDWARE DISPATCHER
+# ==============================================================================
+def send_multivariable_udp_to_esp32(esp_ip, esp_port, case_data, firebase_url=""):
+    """
+    Sends the compact multi-variable intelligence string over Wi-Fi UDP to the ESP32:
+    Format: TARGET|SLOPE_DEC|STRONGEST_DRIVER|CORR|TIP_YEAR|PRED_2035|BITMASK_5LEDS
+    Example: GWETTOP|-0.045|T2M|-0.74|2016|0.210|11110
+    """
+    res = case_data["intel"]
+    t_var = res["target_var"]
+    s_drv = res["strongest_driver"]
+    slope_dec = res["var_stats"][t_var]["slope_dec"]
+    corr_val = res["driver_couplings"][s_drv]["r_annual"]
+    tip_yr = res["tipping_year"]
+    pred_end = float(res["forecast_vals"][-1])
+    bitmask = res["led_bitmask"]
 
-    if not gemini_api_key.strip():
-        return default_brief
+    udp_payload = f"{t_var}|{slope_dec:+.3f}|{s_drv}|{corr_val:+.2f}|{tip_yr}|{pred_end:.3f}|{bitmask}"
+    status_notes = []
 
-    # Optional Live Gemini LLM Enhancement if user provides an API Key
-    try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_api_key.strip()}"
-        prompt = (
-            f"You are a NASA Earth Science Detective helping college students. Summarize these statistical findings in 4 concise bullet points:\n"
-            f"Region: {region_label}\n"
-            f"Variable 1 ({var1}): {res1['direction']}, slope={res1['slope_dec']:+.3f}/decade, Mann-Kendall p={res1['mk_p']:.4f}, t-test p={res1['ttest_p']:.4f}.\n"
-            f"Variable 2 ({var2}): {res2['direction']}, slope={res2['slope_dec']:+.3f}/decade, Mann-Kendall p={res2['mk_p']:.4f}.\n"
-            f"Pearson correlation r={corr:+.2f}. Explain why these variables interact this way physically."
-        )
-        r = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]}, timeout=8)
-        if r.status_code == 200:
-            llm_text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
-            return f"### ✨ Live Gemini AI Detective Report ({region_label})\n\n" + llm_text
-    except Exception:
-        pass
-
-    return default_brief
-
-
-# --- 6. ESP32 UDP & FIREBASE CLOUD DISPATCHER ---
-def dispatch_to_hardware(esp_ip, esp_port, payload, firebase_url=""):
-    """Sends real-time telemetry to the ESP32 over Wi-Fi UDP + optional Firebase Realtime DB."""
-    logs = []
-    # Format expected by ESP32 C++ code: VAR|DIR|SLOPE_DEC|P_VAL|LED_CODE
-    udp_str = f"{payload['var']}|{payload['dir']}|{payload['slope']:.3f}|{payload['p']:.4f}|{payload['led']}"
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.settimeout(1.0)
-        sock.sendto(udp_str.encode("utf-8"), (esp_ip.strip(), int(esp_port)))
+        sock.sendto(udp_payload.encode("utf-8"), (esp_ip.strip(), int(esp_port)))
         sock.close()
-        logs.append(f"✅ UDP Packet Sent to `{esp_ip}:{esp_port}` -> `{udp_str}`")
+        status_notes.append(f"✅ UDP Sent to `{esp_ip}:{esp_port}` ➔ `{udp_payload}`")
     except Exception as e:
-        logs.append(f"⚠️ Local UDP Notice (normal if hosted on cloud): {e}")
+        status_notes.append(f"⚠️ Local UDP Warning: {e}")
 
     if firebase_url.strip():
         try:
-            endpoint = firebase_url.rstrip("/") + "/concord_station.json"
-            requests.put(endpoint, json=payload, timeout=4)
-            logs.append("✅ Synced to Firebase Cloud DB")
+            fb_target = firebase_url.rstrip("/") + "/concord_mission_control.json"
+            requests.put(fb_target, json={
+                "region": case_data["meta"]["region_name"],
+                "udp_string": udp_payload,
+                "target_var": t_var,
+                "slope_decade": slope_dec,
+                "strongest_driver": s_drv,
+                "driver_corr": corr_val,
+                "tipping_year": tip_yr,
+                "led_bitmask": bitmask
+            }, timeout=4)
+            status_notes.append("✅ Synced to Firebase Cloud")
         except Exception as e:
-            logs.append(f"⚠️ Firebase Sync Error: {e}")
+            status_notes.append(f"⚠️ Firebase Error: {e}")
 
-    return " | ".join(logs)
+    return " | ".join(status_notes), udp_payload
 
 
-# =====================================================================
-# 7. MAIN STREAMLIT DASHBOARD UI
-# =====================================================================
-st.title("🛰️ Team Concord — Earth System Trend Detective")
+# ==============================================================================
+# SIDEBAR: CONFIGURATION, MANUAL OVERRIDE & ESP32 LINK
+# ==============================================================================
+with st.sidebar:
+    st.header("🛰️ Concord Control Tower")
+    # Check if key exists in secrets, otherwise leave blank
+    default_gemini = st.secrets.get("GEMINI_API_KEY", "") if hasattr(st, "secrets") else ""
+
+    gemini_key = st.text_input("🔑 Gemini 2.5 Flash API Key", value=default_gemini, type="password")
+    st.divider()
+    st.subheader("🎛️ Manual Variable Override")
+    enable_override = st.checkbox("Override AI Variable Selection", value=False)
+    var_keys = list(VARIABLES.keys())
+    man_lat = st.number_input("Latitude", value=33.26, format="%.2f", disabled=not enable_override)
+    man_lon = st.number_input("Longitude", value=-7.58, format="%.2f", disabled=not enable_override)
+    man_target = st.selectbox("Target Variable", var_keys, index=2, disabled=not enable_override)
+    man_drivers = st.multiselect(
+        "Driver Variables (Pick 3)",
+        [k for k in var_keys if k != man_target],
+        default=["T2M", "PRECTOTCORR", "ALLSKY_SFC_SW_DWN"][:3],
+        disabled=not enable_override
+    )
+    man_years = st.slider("Year Range", 1981, 2025, (1990, 2025), disabled=not enable_override)
+
+    st.divider()
+    st.subheader("🔌 ESP32 Hardware Telemetry")
+    esp_ip = st.text_input("ESP32 Local IP Address", value="192.168.1.105")
+    esp_port = st.number_input("ESP32 UDP Port", value=4210, step=1)
+    firebase_url = st.text_input("Firebase DB URL (Optional)", value="")
+
+    if st.button("🗑️ Clear Top Watchlist Ribbon", use_container_width=True):
+        st.session_state["watchlist"] = []
+        st.rerun()
+
+
+# ==============================================================================
+# DASHBOARD HEADER & TOP RIBBON: PREVIOUS INVESTIGATIONS WATCHLIST MODULES
+# ==============================================================================
+st.title("🛰️ Team Concord — Multi-Variable Earth System Trend Detective")
 st.caption(
-    "**2026 NASA Space Apps Challenge (Casablanca)** | *Multi-Variable Satellite Time-Series, "
-    "Mann-Kendall Significance Engine, Intel OpenVINO Forecaster & ESP32 Telemetry Station*"
+    "**2026 NASA Space Apps Challenge (Casablanca)** | *AI Prompt Router • Seasonal Cycle Filter • "
+    "Cross-Variable Coupling • Tipping-Point Detection • Multivariate AI Forecast & 5-LED ESP32 Station*"
 )
 
-# --- SIDEBAR CONTROLS ---
-with st.sidebar:
-    st.header("🗂️ 1. Data Source Mode")
-    data_mode = st.radio(
-        "Choose NASA Data Pipeline:",
-        ["🛰️ Live NASA MERRA-2 / GLDAS API", "📄 NASA Giovanni / AppEEARS CSV Sheet"]
+st.subheader("📌 Top Watchlist Ribbon — Investigated Regions & Significant Alerts")
+if len(st.session_state["watchlist"]) == 0:
+    st.info("No investigations saved yet. Enter a prompt in **Module 1** below to populate your live Mission Control Watchlist!")
+else:
+    cols_watch = st.columns(min(4, len(st.session_state["watchlist"])))
+    for idx, item in enumerate(st.session_state["watchlist"][-4:]):
+        w_meta = item["meta"]
+        w_intel = item["intel"]
+        t_v = w_intel["target_var"]
+        t_stat = w_intel["var_stats"][t_v]
+        sig_badge = "🔴 SIGNIFICANT" if t_stat["significant"] else "🟢 STABLE/NOISE"
+        shift_badge = f"🟠 Shift: {w_intel['tipping_year']}" if w_intel["regime_shifted"] else f"Tip: {w_intel['tipping_year']}"
+        with cols_watch[idx]:
+            with st.container(border=True):
+                st.markdown(f"**#{idx + 1} {w_meta['region_name']}**")
+                st.markdown(
+                    f"**Target:** `{t_v}` ({t_stat['slope_dec']:+.3f} {VARIABLES[t_v]['unit']}/dec)\n\n"
+                    f"{sig_badge} (`p={t_stat['mk_p']:.4f}`) | {shift_badge}\n\n"
+                    f"**Strongest Driver:** `{w_intel['strongest_driver']}` ($r={w_intel['driver_couplings'][w_intel['strongest_driver']]['r_annual']:+.2f}$) | **LEDs:** `{w_intel['led_bitmask']}`"
+                )
+                if st.button(f"Load Case #{idx + 1}", key=f"load_watch_{idx}", use_container_width=True):
+                    st.session_state["active_case"] = item
+                    st.rerun()
+
+    # Cross-Region Paradox Comparison Expander when 2+ investigations exist
+    if len(st.session_state["watchlist"]) >= 2:
+        with st.expander("🌍 Compare Two Watchlist Regions Side-by-Side (Regional Paradox Detector)"):
+            c_sel1, c_sel2 = st.columns(2)
+            names = [f"#{i+1}: {w['meta']['region_name']} ({w['intel']['target_var']})" for i, w in enumerate(st.session_state["watchlist"])]
+            idx_a = c_sel1.selectbox("Region A", range(len(names)), format_func=lambda i: names[i], index=0)
+            idx_b = c_sel2.selectbox("Region B", range(len(names)), format_func=lambda i: names[i], index=min(1, len(names) - 1))
+
+            case_a = st.session_state["watchlist"][idx_a]
+            case_b = st.session_state["watchlist"][idx_b]
+            va = case_a["intel"]["target_var"]
+            vb = case_b["intel"]["target_var"]
+            sa = case_a["intel"]["var_stats"][va]["slope_dec"]
+            sb = case_b["intel"]["var_stats"][vb]["slope_dec"]
+
+            fig_cmp = go.Figure()
+            fig_cmp.add_trace(go.Scatter(
+                x=case_a["intel"]["annual_df"]["year"],
+                y=stats.zscore(case_a["intel"]["annual_df"][f"{va}_anom"]),
+                mode="lines+markers", name=f"{case_a['meta']['region_name']} ({va}: {sa:+.3f}/dec)"
+            ))
+            fig_cmp.add_trace(go.Scatter(
+                x=case_b["intel"]["annual_df"]["year"],
+                y=stats.zscore(case_b["intel"]["annual_df"][f"{vb}_anom"]),
+                mode="lines+markers", name=f"{case_b['meta']['region_name']} ({vb}: {sb:+.3f}/dec)"
+            ))
+            fig_cmp.update_layout(height=300, template="plotly_dark", yaxis_title="Deseasonalized Z-Anomaly (σ)")
+            st.plotly_chart(fig_cmp, use_container_width=True)
+            if sa * sb < 0:
+                st.warning("⚡ **Regional Divergence Confirmed:** These two regions are trending in opposite directions over the same period!")
+
+st.divider()
+
+# ==============================================================================
+# MODULE 1: AI PROMPT ROUTER & 4-VARIABLE CLUSTER LAUNCHER
+# ==============================================================================
+st.subheader("🧭 Module 1 — AI Prompt Router & Multi-Variable Cluster Selection")
+col_prompt, col_quick = st.columns([3, 2])
+
+with col_quick:
+    preset_choice = st.selectbox(
+        "Or pick a quick investigation prompt:",
+        [
+            "Analyze agricultural drought, soil drying, and heat stress in Berrechid / Casablanca, Morocco from 1990 to 2025",
+            "Investigate extreme rainfall shifts, humidity, and Mediterranean wind patterns in Tangier, Northern Morocco",
+            "Analyze Amazon Rainforest deforestation water cycle shifts and temperature anomalies in Brazil",
+            "Examine Arctic amplification, solar radiation, and polar warming in Svalbard"
+        ]
     )
 
-    st.divider()
-    st.header("🕵️‍♂️ 2. AI Detective Questionnaire")
-    st.caption("Answer two quick questions so the AI Agent selects the best variables & coordinates:")
-    q_biome = st.selectbox(
-        "Where would you like to investigate?",
-        list(dict.fromkeys([k[0] for k in DETECTIVE_SOLUTIONS.keys()]))
+with col_prompt:
+    user_query = st.text_area(
+        "Ask the AI Detective to investigate any region & environmental process on Earth:",
+        value=preset_choice,
+        height=85
     )
-    valid_topics = [k[1] for k in DETECTIVE_SOLUTIONS.keys() if k[0] == q_biome]
-    q_topic = st.selectbox("What Earth process are you investigating?", valid_topics)
 
-    agent_rec = DETECTIVE_SOLUTIONS[(q_biome, q_topic)]
-
-    if data_mode == "🛰️ Live NASA MERRA-2 / GLDAS API":
-        st.subheader("📍 Coordinates & Variables")
-        lat = st.number_input("Latitude (-90 to 90)", value=float(agent_rec["lat"]), format="%.2f")
-        lon = st.number_input("Longitude (-180 to 180)", value=float(agent_rec["lon"]), format="%.2f")
-        var_keys = list(VARIABLES.keys())
-        var1 = st.selectbox(
-            "Primary Variable",
-            var_keys,
-            index=var_keys.index(agent_rec["var1"]),
-            format_func=lambda k: f"{k} — {VARIABLES[k]['name']}"
-        )
-        var2 = st.selectbox(
-            "Comparison Variable",
-            var_keys,
-            index=var_keys.index(agent_rec["var2"]),
-            format_func=lambda k: f"{k} — {VARIABLES[k]['name']}"
-        )
-        year_range = st.slider("Satellite Record Period", 1981, 2025, (1990, 2025))
-    else:
-        st.subheader("📥 Upload Giovanni / AppEEARS CSV")
-        sample_csv_bytes = generate_sample_giovanni_csv().encode("utf-8")
-        st.download_button(
-            "⬇️ Download Sample NASA Giovanni CSV",
-            data=sample_csv_bytes,
-            file_name="giovanni_morocco_merra2_gldas.csv",
-            mime="text/csv"
-        )
-        uploaded_csv = st.file_uploader("Upload `.csv` time-series file", type=["csv"])
-
-    st.divider()
-    st.header("🔌 3. ESP32 Hardware & Cloud")
-    esp_ip = st.text_input("ESP32 Local IP (UDP)", value="192.168.1.105")
-    esp_port = st.number_input("ESP32 UDP Port", value=4210, step=1)
-    firebase_url = st.text_input("Firebase Realtime DB URL (Optional)", value="")
-    gemini_key = st.text_input("Gemini API Key (Optional Live LLM)", type="password", value="")
-
-    if OPENVINO_AVAILABLE:
-        st.success("⚡ Intel OpenVINO Runtime: ACTIVE")
-    else:
-        st.info("🧠 AI Engine: Autoregressive + IsolationForest")
-
-# --- EDUCATIONAL VARIABLE DEFINITIONS BANNER ---
-if data_mode == "🛰️ Live NASA MERRA-2 / GLDAS API":
-    c_info1, c_info2 = st.columns(2)
-    with c_info1:
-        st.info(
-            f"**📘 Primary Variable: `{var1}` — {VARIABLES[var1]['name']}**\n\n"
-            f"**Mission:** {VARIABLES[var1]['mission']} | **Unit:** `{VARIABLES[var1]['unit']}`\n\n"
-            f"{VARIABLES[var1]['definition']}"
-        )
-    with c_info2:
-        st.info(
-            f"**📙 Comparison Variable: `{var2}` — {VARIABLES[var2]['name']}**\n\n"
-            f"**Mission:** {VARIABLES[var2]['mission']} | **Unit:** `{VARIABLES[var2]['unit']}`\n\n"
-            f"{VARIABLES[var2]['definition']}"
-        )
-
-# --- RUN ANALYSIS BUTTON ---
-if st.button("🚀 Run Earth System Trend Detective & Dispatch to ESP32", type="primary", use_container_width=True):
-    with st.spinner("Acquiring NASA time-series, removing seasonal cycles, and running Mann-Kendall & OpenVINO models..."):
+if st.button("🚀 Execute Step 1 ➔ Step 3.5 Pipeline & Update ESP32 Station", type="primary", use_container_width=True):
+    with st.spinner("Step 1: Routing via AI Agent ➔ Step 2: Fetching 4 NASA Variables ➔ Step 3.2: Filtering Seasonal Zig-Zag ➔ Step 3.3: Running 4-Layer Intelligence..."):
         try:
-            # 1. Load Data from either Live NASA API or Uploaded Giovanni CSV
-            if data_mode == "🛰️ Live NASA MERRA-2 / GLDAS API":
-                df = fetch_nasa_merra2_live(lat, lon, var1, var2, year_range[0], year_range[1])
-                unit1 = VARIABLES[var1]["unit"]
-                unit2 = VARIABLES[var2]["unit"]
-                region_title = f"{agent_rec['region_label']} ({lat:.2f}°, {lon:.2f}°)"
-            else:
-                if uploaded_csv is not None:
-                    df, var1, var2 = parse_giovanni_csv(uploaded_csv)
-                    region_title = f"Uploaded NASA Giovanni CSV ({uploaded_csv.name})"
-                else:
-                    df, var1, var2 = parse_giovanni_csv(io.BytesIO(generate_sample_giovanni_csv().encode("utf-8")))
-                    region_title = "Sample NASA Giovanni Dataset (Morocco Chaouia Plain)"
-                lat, lon = agent_rec["lat"], agent_rec["lon"]
-                unit1, unit2 = "units", "units"
+            meta = parse_user_prompt_with_ai(user_query, gemini_key)
+            if enable_override and len(man_drivers) >= 1:
+                meta["lat"] = float(man_lat)
+                meta["lon"] = float(man_lon)
+                meta["target_var"] = man_target
+                meta["driver_vars"] = man_drivers[:3]
+                meta["start_year"] = int(man_years[0])
+                meta["end_year"] = int(man_years[1])
+                meta["region_name"] = f"Custom Coordinates ({man_lat:.2f}°, {man_lon:.2f}°)"
+                meta["router_source"] = "Manual Sidebar Override"
 
-            # 2. Run Statistical & AI Analysis on Both Variables
-            res1 = analyze_timeseries(df, var1)
-            res2 = analyze_timeseries(df, var2)
-
-            corr, _ = stats.pearsonr(res1["annual"]["raw_mean"], res2["annual"]["raw_mean"])
-            opposite_directions = (res1["slope_yr"] * res2["slope_yr"]) < 0
-
-            # 3. Compute ESP32 5-LED Code
-            # LED 2 (Green) = No Sig Trend, LED 3 (Yellow) = Mod Sig (p < 0.05), LED 4 (Red) = Crit Sig (p < 0.01)
-            if res1["mk_p"] < 0.01:
-                led_code = 4
-            elif res1["mk_p"] < 0.05:
-                led_code = 3
-            else:
-                led_code = 2
-
-            # Add +10 offset if opposite trends (Paradox LED 5)
-            if opposite_directions and (res1["significant"] or res2["significant"]):
-                led_code += 10
-
-            # 4. Top Summary KPI Cards
-            k1, k2, k3, k4 = st.columns(4)
-            k1.metric(
-                f"{var1} Rate of Change",
-                f"{res1['slope_dec']:+.3f} {unit1}/dec",
-                f"±{res1['ci_95_dec']:.3f} (95% CI)"
+            all_requested_vars = [meta["target_var"]] + meta["driver_vars"]
+            df_raw = fetch_nasa_multivariable_data(
+                meta["lat"], meta["lon"], meta["start_year"], meta["end_year"], all_requested_vars
             )
-            k2.metric(
-                f"{var1} Mann-Kendall Test",
-                f"p = {res1['mk_p']:.4f}",
-                "SIGNIFICANT TREND" if res1["significant"] else "Not Significant",
-                delta_color="normal" if res1["significant"] else "off"
-            )
-            k3.metric(
-                f"{var2} Rate of Change",
-                f"{res2['slope_dec']:+.3f} {unit2}/dec",
-                f"p = {res2['mk_p']:.4f} ({'SIG' if res2['significant'] else 'NS'})"
-            )
-            k4.metric(
-                "Cross-Variable Correlation",
-                f"r = {corr:+.2f}",
-                "Opposite Directions (Paradox)" if opposite_directions else "Same Direction"
+            intel_res = run_multivariable_intelligence_engine(
+                df_raw, meta["target_var"], meta["driver_vars"]
             )
 
-            # 5. Primary Interactive Chart (Observed + Linear Trend + Anomalies + OpenVINO 10-Yr Forecast)
-            st.subheader(f"📈 {var1} Time-Series, Linear Significance Fit & 10-Year AI Forecast — {region_title}")
-            ann1 = res1["annual"]
-            anom1 = res1["anomalies"]
+            case_bundle = {"meta": meta, "intel": intel_res}
+            udp_status, udp_str = send_multivariable_udp_to_esp32(esp_ip, esp_port, case_bundle, firebase_url)
+            case_bundle["udp_status"] = udp_status
+            case_bundle["udp_str"] = udp_str
 
-            fig1 = go.Figure()
-            fig1.add_trace(go.Scatter(
-                x=ann1["year"], y=ann1["raw_mean"],
-                mode="lines+markers", name=f"Annual Mean {var1}",
-                line=dict(color="#38bdf8", width=2)
+            st.session_state["active_case"] = case_bundle
+            st.session_state["watchlist"].append(case_bundle)
+            st.rerun()
+        except Exception as err:
+            st.error(f"Pipeline Execution Error: {err}")
+
+
+# ==============================================================================
+# RENDER MODULES 2 TO 5 WHEN AN ACTIVE INVESTIGATION EXISTS
+# ==============================================================================
+if st.session_state["active_case"] is not None:
+    active = st.session_state["active_case"]
+    meta = active["meta"]
+    intel = active["intel"]
+    t_var = intel["target_var"]
+    d_vars = intel["driver_vars"]
+    all_vars = intel["all_vars"]
+    v_stats = intel["var_stats"]
+    ann_df = intel["annual_df"]
+
+    # Show JSON payload generated by Step 1 + 4-Variable Significance Cards
+    with st.expander(f"🔍 View Step 1 AI Router JSON Output ({meta['router_source']})", expanded=False):
+        st.json(meta)
+
+    st.markdown(f"#### 🧪 Active 4-Variable Cluster for **{meta['region_name']}** ({meta['lat']:.2f}°, {meta['lon']:.2f}°)")
+    st.caption(f"**Physical Hypothesis:** {meta['hypothesis']}")
+
+    card_cols = st.columns(len(all_vars))
+    for i, v in enumerate(all_vars):
+        st_v = v_stats[v]
+        role_tag = "🎯 TARGET" if v == t_var else f"⚙️ DRIVER #{i}"
+        sig_label = "SIGNIFICANT (p < 0.05)" if st_v["significant"] else "Not Significant (Noise)"
+        with card_cols[i]:
+            with st.container(border=True):
+                st.markdown(f"**{role_tag}: `{v}`**")
+                st.caption(f"{VARIABLES[v]['name']} ({VARIABLES[v]['mission']})")
+                st.metric(
+                    label="Deseasonalized Trend / Decade",
+                    value=f"{st_v['slope_dec']:+.3f} {VARIABLES[v]['unit']}",
+                    delta=f"±{st_v['ci_95_dec']:.3f} (95% CI)"
+                )
+                st.markdown(
+                    f"**Mann-Kendall $p$:** `{st_v['mk_p']:.4f}`  \n"
+                    f"**t-test $p$:** `{st_v['ttest_p']:.4f}`  \n"
+                    f"**Verdict:** {'🔴 ' if st_v['significant'] else '🟢 '}**{sig_label}**"
+                )
+
+    st.divider()
+
+    # ==========================================================================
+    # MODULE 2 & MODULE 3: MULTI-VARIABLE OVERLAY, FORECAST & COUPLING MATRIX
+    # ==========================================================================
+    col_mod3, col_mod2 = st.columns([3, 2])
+
+    with col_mod3:
+        st.subheader("📈 Module 3 — Deseasonalized Trend, Tipping Point & Multivariate AI Forecast")
+        view_mode = st.radio(
+            "Select Diagram Mode:",
+            ["Target Variable + Tipping Point + 10-Yr Multivariate AI Forecast", "4-Variable Standardized Z-Score Overlay (After Zig-Zag Removal)"],
+            horizontal=True
+        )
+
+        if view_mode.startswith("Target"):
+            fig_main = go.Figure()
+            y_obs = ann_df[t_var].values
+            x_yr = ann_df["year"].values
+
+            # 1. Observed Annual Series
+            fig_main.add_trace(go.Scatter(
+                x=x_yr, y=y_obs, mode="lines+markers",
+                name=f"Observed {t_var} ({VARIABLES[t_var]['unit']})",
+                line=dict(color="#38bdf8", width=2.5)
             ))
-            trend_line = res1["slope_yr"] * ann1["year"] + (ann1["raw_mean"].mean() - res1["slope_yr"] * ann1["year"].mean())
-            fig1.add_trace(go.Scatter(
-                x=ann1["year"], y=trend_line,
-                mode="lines",
-                name=f"Linear Trend ({res1['slope_dec']:+.3f}/dec, t-test p={res1['ttest_p']:.4f})",
-                line=dict(color="#ef4444", width=3, dash="dash")
+
+            # 2. Piecewise Pre- vs Post-Tipping Point Trendlines
+            tip_yr = intel["tipping_year"]
+            tip_idx = int(np.where(x_yr == tip_yr)[0][0])
+            lin_pre = stats.linregress(x_yr[:tip_idx+1], y_obs[:tip_idx+1])
+            lin_post = stats.linregress(x_yr[tip_idx:], y_obs[tip_idx:])
+
+            fig_main.add_trace(go.Scatter(
+                x=x_yr[:tip_idx+1],
+                y=lin_pre.slope * x_yr[:tip_idx+1] + lin_pre.intercept,
+                mode="lines", name=f"Pre-{tip_yr} Regime ({intel['slope_pre']:+.3f}/dec)",
+                line=dict(color="#22c55e", width=3, dash="dash")
             ))
-            fig1.add_trace(go.Scatter(
-                x=anom1["year"], y=anom1["raw_mean"],
-                mode="markers", name="Isolation Forest Extreme Anomaly Years",
-                marker=dict(color="#f43f5e", size=11, symbol="star")
+            fig_main.add_trace(go.Scatter(
+                x=x_yr[tip_idx:],
+                y=lin_post.slope * x_yr[tip_idx:] + lin_post.intercept,
+                mode="lines", name=f"Post-{tip_yr} Regime ({intel['slope_post']:+.3f}/dec)",
+                line=dict(color="#ef4444", width=3.5, dash="dash")
             ))
-            fig1.add_trace(go.Scatter(
-                x=res1["future_years"], y=res1["forecast_y"],
-                mode="lines+markers", name=f"10-Yr Forecast ({res1['ai_engine']})",
+
+            # 3. Extreme Anomaly Stars
+            fig_main.add_trace(go.Scatter(
+                x=v_stats[t_var]["extreme_years"],
+                y=v_stats[t_var]["extreme_vals"],
+                mode="markers", name="Isolation Forest Extreme Anomalies",
+                marker=dict(color="#f43f5e", size=12, symbol="star")
+            ))
+
+            # 4. 10-Year Multivariate AI Forecast
+            fig_main.add_trace(go.Scatter(
+                x=intel["future_years"], y=intel["forecast_vals"],
+                mode="lines+markers", name=f"10-Yr Multivariate AI Forecast ({intel['ai_engine_label']})",
                 line=dict(color="#f59e0b", width=3, dash="dot")
             ))
-            fig1.update_layout(height=420, template="plotly_dark", xaxis_title="Year", yaxis_title=unit1)
-            st.plotly_chart(fig1, use_container_width=True)
 
-            # 6. Multi-Variable Z-Score Comparison & Geographic Map
-            col_chart, col_map = st.columns([3, 2])
-            with col_chart:
-                st.subheader("🔄 Deseasonalized Multi-Variable Comparison (Z-Score Anomalies)")
-                z1 = stats.zscore(ann1["anom_mean"])
-                z2 = stats.zscore(res2["annual"]["anom_mean"])
-                fig2 = go.Figure()
-                fig2.add_trace(go.Scatter(x=ann1["year"], y=z1, mode="lines", name=f"{var1} Anomaly (σ)", line=dict(color="#38bdf8", width=2.5)))
-                fig2.add_trace(go.Scatter(x=res2["annual"]["year"], y=z2, mode="lines", name=f"{var2} Anomaly (σ)", line=dict(color="#a855f7", width=2.5)))
-                fig2.update_layout(height=340, template="plotly_dark", xaxis_title="Year", yaxis_title="Standardized Anomaly (σ)")
-                st.plotly_chart(fig2, use_container_width=True)
-
-            with col_map:
-                st.subheader("🌍 Investigated Coordinates")
-                st.map(pd.DataFrame({"lat": [lat], "lon": [lon]}), zoom=4)
-
-            # 7. AI Detective Scientific Synthesis Report
-            report_md = generate_ai_scientific_brief(
-                var1, var2, res1, res2, corr, region_title, agent_rec["hypothesis"], gemini_key
+            # Vertical Tipping-Point Line
+            fig_main.add_vline(
+                x=tip_yr, line_width=2, line_dash="dot", line_color="#fb923c",
+                annotation_text=f"Tipping Point: {tip_yr}", annotation_position="top left"
             )
-            st.info(report_md)
+            fig_main.update_layout(height=430, template="plotly_dark", xaxis_title="Year", yaxis_title=VARIABLES[t_var]["unit"])
+            st.plotly_chart(fig_main, use_container_width=True)
 
-            # 8. Dispatch Telemetry to Physical ESP32 Station + Visual LED Preview
-            hw_payload = {
-                "var": var1[:10],
-                "dir": res1["direction"][:3],
-                "slope": float(res1["slope_dec"]),
-                "p": float(res1["mk_p"]),
-                "led": int(led_code)
-            }
-            dispatch_msg = dispatch_to_hardware(esp_ip, esp_port, hw_payload, firebase_url)
+        else:
+            fig_z = go.Figure()
+            palette = ["#38bdf8", "#f43f5e", "#a855f7", "#eab308"]
+            for idx, v in enumerate(all_vars):
+                z_series = stats.zscore(ann_df[f"{v}_anom"].values)
+                fig_z.add_trace(go.Scatter(
+                    x=ann_df["year"], y=z_series, mode="lines",
+                    name=f"{v} ({'Target' if v == t_var else 'Driver'})",
+                    line=dict(color=palette[idx % len(palette)], width=3 if v == t_var else 1.8)
+                ))
+            fig_z.add_vline(x=intel["tipping_year"], line_width=2, line_dash="dot", line_color="#fb923c")
+            fig_z.update_layout(
+                height=430, template="plotly_dark",
+                xaxis_title="Year", yaxis_title="Deseasonalized Z-Score Anomaly (σ)"
+            )
+            st.plotly_chart(fig_z, use_container_width=True)
 
-            st.subheader("📟 ESP32 Physical Station Status (OLED + 5 LEDs)")
-            base_led = led_code - 10 if led_code >= 10 else led_code
-            paradox_on = led_code >= 10
-            l1, l2, l3, l4, l5 = st.columns(5)
-            l1.markdown("🔵 **LED 1 (Blue):** `ON` (Packet Rx)")
-            l2.markdown(f"🟢 **LED 2 (Green):** `{'ON (Stable)' if base_led == 2 else 'OFF'}`")
-            l3.markdown(f"🟡 **LED 3 (Yellow):** `{'ON (p < 0.05)' if base_led == 3 else 'OFF'}`")
-            l4.markdown(f"🔴 **LED 4 (Red):** `{'ON (p < 0.01)' if base_led == 4 else 'OFF'}`")
-            l5.markdown(f"🟣 **LED 5 (Paradox):** `{'ON (Opposite!)' if paradox_on else 'OFF'}`")
-            st.caption(dispatch_msg)
+    with col_mod2:
+        st.subheader("🔗 Module 2 — Driver Coupling, Time-Lag & Regime Shift")
 
-        except Exception as e:
-            st.error(f"Error during NASA data acquisition or statistical processing: {e}")
+        # Cross-Correlation Heatmap
+        fig_heat = px.imshow(
+            np.round(intel["corr_matrix"].values, 2),
+            x=all_vars, y=all_vars,
+            color_continuous_scale="RdBu_r", zmin=-1, zmax=1,
+            text_auto=True, aspect="auto"
+        )
+        fig_heat.update_layout(height=230, template="plotly_dark", margin=dict(l=10, r=10, t=10, b=10))
+        st.plotly_chart(fig_heat, use_container_width=True)
+
+        # Tipping Point & Time-Lag Intelligence Table
+        st.markdown(
+            f"**⚡ CUSUM Tipping-Point Year:** `{intel['tipping_year']}` "
+            f"(Slope changed from `{intel['slope_pre']:+.3f}` to `{intel['slope_post']:+.3f}`/decade — "
+            f"**{intel['accel_ratio']:.1f}x acceleration**)"
+        )
+
+        lag_rows = []
+        for d_v in d_vars:
+            dc = intel["driver_couplings"][d_v]
+            lag_rows.append({
+                "Driver": d_v,
+                "Annual Corr (r)": f"{dc['r_annual']:+.2f}",
+                "Optimal Lag": f"{dc['best_lag_months']} mo",
+                "Lagged r": f"{dc['lag_r']:+.2f}",
+                "Coupling Type": "⚪ INVERSE PARADOX" if dc["paradox_coupled"] else "Co-Trending"
+            })
+        st.dataframe(pd.DataFrame(lag_rows), use_container_width=True, hide_index=True)
+
+    st.divider()
+
+    # ==========================================================================
+    # MODULE 4 & MODULE 5: "WHAT-IF" AI SIMULATOR + ESP32 5-LED DIGITAL TWIN
+    # ==========================================================================
+    col_mod4, col_mod5 = st.columns([3, 2])
+
+    with col_mod4:
+        st.subheader("🎛️ Module 4 — Interactive Multivariate 'What-If' Scenario Simulator")
+        st.caption(
+            f"Adjust the physical Driver Variables below to simulate how `{t_var}` ({VARIABLES[t_var]['name']}) "
+            "responds according to the trained Multivariate Random Forest model:"
+        )
+
+        sim_cols = st.columns(len(d_vars))
+        baseline_vec = ann_df[all_vars].values[-1].copy()
+        simulated_vec = baseline_vec.copy()
+
+        for i, d_v in enumerate(d_vars):
+            d_mean = v_stats[d_v]["mean_raw"]
+            d_std = v_stats[d_v]["std_raw"]
+            with sim_cols[i]:
+                delta_pct = st.slider(
+                    f"Δ {d_v} ({VARIABLES[d_v]['unit']})",
+                    min_value=-3.0, max_value=3.0, value=0.0, step=0.25,
+                    help=f"Shift {d_v} by standard deviations (1σ = {d_std:.3f} {VARIABLES[d_v]['unit']})"
+                )
+                simulated_vec[i + 1] = baseline_vec[i + 1] + (delta_pct * d_std)
+
+        base_pred = float(intel["rf_model"].predict([baseline_vec])[0])
+        # Combine Random Forest response with linear cross-correlation sensitivity for smooth physical feedback
+        rf_sim_pred = float(intel["rf_model"].predict([simulated_vec])[0])
+        linear_delta = 0.0
+        for i, d_v in enumerate(d_vars):
+            std_shift = (simulated_vec[i + 1] - baseline_vec[i + 1]) / v_stats[d_v]["std_raw"]
+            r_val = intel["driver_couplings"][d_v]["r_annual"]
+            linear_delta += std_shift * r_val * v_stats[t_var]["std_raw"] * 0.45
+
+        final_sim_pred = 0.5 * rf_sim_pred + 0.5 * (base_pred + linear_delta)
+        sim_diff = final_sim_pred - base_pred
+
+        m_sim1, m_sim2, m_sim3 = st.columns(3)
+        m_sim1.metric(f"Current Baseline {t_var}", f"{baseline_vec[0]:.3f} {VARIABLES[t_var]['unit']}")
+        m_sim2.metric(
+            f"Simulated {t_var} Response",
+            f"{final_sim_pred:.3f} {VARIABLES[t_var]['unit']}",
+            f"{sim_diff:+.3f} {VARIABLES[t_var]['unit']}"
+        )
+        top_imp_var = max(intel["importances"], key=intel["importances"].get)
+        m_sim3.metric("Top AI Feature Importance", f"{top_imp_var}", f"{intel['importances'][top_imp_var]*100:.1f}% weight")
+
+    with col_mod5:
+        st.subheader("📟 Module 5 — ESP32 5-LED Hardware Station & Map")
+        st.map(pd.DataFrame({"lat": [meta["lat"]], "lon": [meta["lon"]]}), zoom=4)
+
+        bitmask = intel["led_bitmask"]
+        b_on, o_on, r_on, w_on, g_on = [c == "1" for c in bitmask]
+
+        st.markdown("##### 💡 Live 5-LED Bitmask State (`" + bitmask + "`)")
+        l1, l2, l3, l4, l5 = st.columns(5)
+        l1.markdown(f"🔵 **BLUE**\n\n`{'ON' if b_on else 'OFF'}`\n\n*Hydro Sig*")
+        l2.markdown(f"🟠 **ORANGE**\n\n`{'ON' if o_on else 'OFF'}`\n\n*Tip Shift*")
+        l3.markdown(f"🔴 **RED**\n\n`{'ON' if r_on else 'OFF'}`\n\n*p < 0.01*")
+        l4.markdown(f"⚪ **WHITE**\n\n`{'ON' if w_on else 'OFF'}`\n\n*Paradox*")
+        l5.markdown(f"🟢 **5th LED**\n\n`{'ON' if g_on else 'OFF'}`\n\n*Stable*")
+
+        st.caption(active.get("udp_status", ""))
