@@ -1,0 +1,25 @@
+Where do you want to investigate?
+Enter a city, region, or coordinates.
+Example: Berrechid, Morocco; or 33.26, -7.58.
+
+What kind of area is it?
+Agricultural or semi-arid land, rainforest, coastal city, polar region, or other.
+
+What Earth system change are you curious about?
+Drought and soil drying, warming, changing rainfall, urban heat, humidity, solar energy, or something else.
+
+Do you already know which variables you want to compare?
+If yes, choose two. If not, let the AI recommend a pair based on your location and topic.
+
+Which two variables should the app analyze?  
+- T2M — air temperature
+- PRECTOTCORR — precipitation
+- GWETTOP — topsoil wetness
+- QV2M — specific humidity
+- ALLSKY_SFC_SW_DWN — surface solar irradiance
+
+What years should the app examine?
+Example: 1990–2025.
+
+What would you most like the results to explain?
+Trend direction, rate of change, whether the trend is statistically significant, how the two variables relate, or all of these.
