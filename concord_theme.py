@@ -55,7 +55,6 @@ input,textarea {font-family:var(--concord-font)!important;}
 [data-testid="stTabs"] [role="tablist"] {gap:8px;background:transparent;border:0;flex-wrap:wrap;height:auto;}
 [data-testid="stTabs"] [role="tab"] {border-radius:16px;min-height:44px;padding:8px 16px;background:var(--surface);color:var(--text-muted);border:0;}
 [data-testid="stTabs"] [role="tab"][aria-selected="true"] {background:var(--accent);color:var(--accent-ink);}
-[data-testid="stTabs"] [role="tab"] p {font-weight:600;font-size:.875rem;color:inherit;}
 [data-testid="stTabs"] [data-baseweb="tab-highlight"],[data-testid="stTabs"] [data-baseweb="tab-border"] {display:none;}
 [data-testid="stRadio"] [role="radiogroup"] {display:flex;flex-wrap:wrap;gap:8px;}
 [data-testid="stRadio"] [role="radiogroup"] label {margin:0!important;min-height:44px;border:0;border-radius:16px;padding:8px 12px;background:var(--surface);}
@@ -213,14 +212,12 @@ details summary {min-height:44px;cursor:pointer;}
 .stButton,.stDownloadButton {max-width:100%;}
 .stButton>button,.stDownloadButton>button {width:auto!important;max-width:100%;text-align:left;}
 
-
 .st-key-current-result {background:var(--surface);border-radius:16px;padding:24px;}
 .st-key-current-result .hero-card {background:none;padding:0;margin:0;}
 .st-key-current-result [data-testid="stPlotlyChart"] {background:none;}
 .hero-zones {grid-template-columns:1fr 1fr;}
 .map-source {font-size:.875rem;color:var(--text-muted);}.map-source a {color:inherit;}
 @media(max-width:640px) {.st-key-current-result {padding:20px;}.hero-zones {grid-template-columns:1fr;}.hero-stats {grid-template-columns:1fr 1fr;}}
-
 
 .series-key {font-size:.875rem;color:var(--text-muted);margin:0;}
 .series-key summary {min-height:40px;display:flex;align-items:center;cursor:pointer;gap:8px;}
@@ -229,11 +226,8 @@ details summary {min-height:44px;cursor:pointer;}
 .series-item {display:inline-flex;align-items:center;gap:8px;}
 .series-swatch {width:16px;height:3px;flex-shrink:0;}
 
-
-/* Existing verdict changes only a small amount of the navy background. */
 .stApp:has(.hero-card[data-verdict="significant"]) {--bg-0:#111A35;}
 .stApp:has(.hero-card[data-verdict="emerging"]) {--bg-0:#1A1837;}
-
 
 .st-key-current-result {container-type:inline-size;}
 @container(max-width:800px) {
@@ -242,13 +236,10 @@ details summary {min-height:44px;cursor:pointer;}
 }
 @media(max-width:1200px) {.hero-stats {grid-template-columns:repeat(3,minmax(0,1fr));}}
 @media(max-width:640px) {.hero-stats {grid-template-columns:repeat(2,minmax(0,1fr));}}
-
 """
-
 
 def esc(value):
     return escape(str(value), quote=True)
-
 
 def safe_prose(value):
     """Escape dynamic prose, retaining only the engine's strong/code emphasis."""
@@ -257,17 +248,14 @@ def safe_prose(value):
         value = value.replace(f"&lt;{tag}&gt;", f"<{tag}>").replace(f"&lt;/{tag}&gt;", f"</{tag}>")
     return value
 
-
 def inject_theme():
     st.html("<style>" + CSS + "</style>")
-
 
 def inline_svg(svg, label="", class_name=""):
     """Keep SVGs inline as image data: st.html's HTML-only sanitizer drops svg tags."""
     svg = svg.replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ', 1)
     payload = base64.b64encode(svg.encode("utf-8")).decode("ascii")
     return f'<img class="{esc(class_name)}" alt="{esc(label)}" src="data:image/svg+xml;base64,{payload}" />'
-
 
 def _load_local_image_uri(candidates):
     """Load a local PNG/JPG image as a data URI for st.html blocks."""
@@ -281,14 +269,12 @@ def _load_local_image_uri(candidates):
                 return f"data:{mime};base64,{b64}"
     return None
 
-
 def brand_wordmark():
     """Render the custom CONCORDE wordmark image if present, else the orbital icon + CONCORDE."""
     logo_uri = _load_local_image_uri(["logo.png", "logo.jpg", "Untitled design (1).png", "Untitled design (1).jpg"])
     if logo_uri:
         return f'<img class="brand-wordmark-img" alt="CONCORDE" src="{logo_uri}" />'
     return icon("orbit") + "CONCORDE"
-
 
 def icon(name="orbit", color="#FF8F5A"):
     if name == "orbit":
@@ -305,7 +291,6 @@ def icon(name="orbit", color="#FF8F5A"):
         "upload": '<path d="M12 16V3m-5 5 5-5 5 5M4 15v6h16v-6"/>',
     }
     return inline_svg('<svg viewBox="0 0 24 24" fill="none" stroke="' + esc(color) + '" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">' + paths.get(name, paths["orbit"]) + '</svg>')
-
 
 def nav_bar(description=""):
     links = [("inquiry", "Inquiry"), ("significance", "Significance"), ("time-series", "Time-series"),
@@ -324,22 +309,17 @@ def nav_bar(description=""):
         '</nav>'
     )
 
-
 def section_header(chapter, title, anchor):
     return f'<div class="section-heading" id="{esc(anchor)}"><h2>{esc(title)}</h2></div>'
 
-
 def stat_tile(label, value, note=""):
     return f'<div class="stat-tile"><div class="tile-label">{esc(label)}</div><div class="stat-value">{esc(value)}</div>' + (f'<div class="stat-note">{esc(note)}</div>' if note else '') + '</div>'
-
 
 def status_chip(label, state="unconfirmed"):
     state = state if state in {"significant", "emerging", "unconfirmed"} else "unconfirmed"
     return f'<span class="status-chip {state}">' + status_icon(state) + esc(label) + '</span>'
 
-
 def arc_gauge_svg(percent):
-    """270-degree display arc; the supplied percentage is already computed."""
     value = float(percent)
     value = min(100., max(0., value)) if isfinite(value) else 0.
     uid = "arc" + uuid4().hex
@@ -356,9 +336,7 @@ def arc_gauge_svg(percent):
             '<text x="60" y="82" text-anchor="middle" fill="#AEBBD3" font-family="Segoe UI Variable,Segoe UI,system-ui,Inter,sans-serif" font-size="8">IMPORTANCE</text></svg>')
     return inline_svg(svg, f"Feature importance {value:.1f} percent", "arc-gauge")
 
-
 def sparkline_svg(values, label="Annual observations", color="#FF8F5A"):
-    """Map each observation to SVG coordinates, with straight segments and gaps."""
     vals = [float(v) for v in values]
     valid = [v for v in vals if isfinite(v)]
     if not valid:
@@ -384,9 +362,7 @@ def sparkline_svg(values, label="Annual observations", color="#FF8F5A"):
             f'<circle cx="{last[0]:.2f}" cy="{last[1]:.2f}" r="4" fill="{esc(color)}"/></svg>')
     return inline_svg(svg, label)
 
-
 def mini_geo_svg(lat, lon):
-    """A schematic coordinate map, with no fetched or hotlinked map assets."""
     x, y = 20 + (float(lon) + 180) / 360 * 280, 15 + (90 - float(lat)) / 180 * 140
     svg = ('<svg viewBox="0 0 320 174" role="img" aria-label="Schematic latitude and longitude map">'
             '<rect x="20" y="15" width="280" height="140" rx="16" fill="#102B40"/>'
@@ -395,7 +371,6 @@ def mini_geo_svg(lat, lon):
             f'<circle cx="{x:.2f}" cy="{y:.2f}" r="12" fill="#FF8F5A" opacity=".15"/><circle cx="{x:.2f}" cy="{y:.2f}" r="4" fill="#FF8F5A"/>'
             '</svg>')
     return inline_svg(svg, "Schematic latitude and longitude map")
-
 
 def hero_card(meta, intel, variables):
     target = intel["target_var"]
@@ -414,12 +389,10 @@ def hero_card(meta, intel, variables):
             '</div>'
             '<div class="hero-stats">' + ''.join(stat_tile(k, v) for k, v in tiles) + '</div></section>')
 
-
 def led_tile(title, active, trigger, color):
     allowed = {"blue": "#60A5FA", "orange": "#FF9B42", "red": "#FF7A7A", "white": "#F5F7FF", "green": "#4ADE80"}
     ink = allowed.get(color, "#F5F7FF")
     return f'<div class="led-tile" style="--led-color:{ink}"><span class="led-dot {"on" if active else "off"}" aria-hidden="true"></span><div class="led-title">{esc(title)}</div><div class="led-state">{"ACTIVE [1]" if active else "OFF [0]"}</div><div class="led-trigger">{esc(trigger)}</div></div>'
-
 
 def html_table(rows, caption="Driver lag analysis"):
     if not rows:
@@ -431,7 +404,6 @@ def html_table(rows, caption="Driver lag analysis"):
         cells = ''.join('<td>' + (status_chip(row[h], 'unconfirmed') if row[h] == 'INVERSE PARADOX' else esc(row[h])) + '</td>' for h in headers)
         body += '<tr>' + cells + '</tr>'
     return f'<div class="table-wrap" role="region" aria-label="{esc(caption)}" tabindex="0"><table class="concord-table"><caption>{esc(caption)}</caption><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></div>'
-
 
 def footer():
     return (
@@ -445,29 +417,22 @@ def footer():
         '</div>'
     )
 
-
 def info_note(description):
-    """Focus and hover reveal the full original section explanation."""
     return '<span class="info-note" tabindex="0" role="button" aria-label="' + esc(description) + '"><span class="info-symbol" aria-hidden="true">i</span><span class="info-copy" role="tooltip">' + esc(description) + '</span></span>'
-
 
 def with_info(markup, description):
     position = markup.rfind('</div>')
     return markup[:position] + info_note(description) + markup[position:]
-
 
 VARIABLE_COLORS = {
     "T2M": "#FF8F5A", "GWETTOP": "#90B879", "PRECTOTCORR": "#79B9EC",
     "ALLSKY_SFC_SW_DWN": "#F0C66C", "QV2M": "#87CCD2", "WS2M": "#ADBFD4",
 }
 
-
 def variable_color(code):
     return VARIABLE_COLORS.get(str(code), "#C8CDD9")
 
-
 def variable_icon(code):
-    """Small original filled pictograms; color consistently identifies the variable."""
     uid = "variable" + uuid4().hex
     fill = f'url(#{uid})'
     shapes = {
@@ -482,7 +447,6 @@ def variable_icon(code):
     svg = f'<svg viewBox="0 0 32 32"><defs><linearGradient id="{uid}" x2=".7" y2="1"><stop stop-color="{variable_color(code)}"/><stop offset="1" stop-color="{variable_color(code)}" stop-opacity=".55"/></linearGradient></defs>{shape}</svg>'
     return inline_svg(svg, str(code), "variable-icon")
 
-
 def status_icon(state):
     colors = {"significant": "#90B879", "emerging": "#F0C66C", "unconfirmed": "#ADB5CE"}
     color = colors.get(state, colors["unconfirmed"])
@@ -493,31 +457,21 @@ def status_icon(state):
     }
     return inline_svg(f'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="{color}"/>{marks.get(state, marks["unconfirmed"])}</svg>', state, "status-icon")
 
-
 @st.cache_data(ttl=300, show_spinner=False)
 def _tile_available(url):
-    """Check the actual raster provider without touching scientific acquisition."""
     try:
         response = requests.get(url, timeout=(2, 3))
         return response.status_code == 200 and response.content.startswith(b'\x89PNG')
     except requests.RequestException:
         return False
 
-
 def outline_map(meta, height=330):
-    fig = go.Figure(go.Scattergeo(lat=[meta['lat']], lon=[meta['lon']],
-                                 text=[esc(meta['region_name'])], marker=dict(size=10, color='#FF8F5A')))
-    fig.update_geos(showland=True, landcolor='#333C57', showocean=True, oceancolor='#18203F',
-                    bgcolor='rgba(0,0,0,0)', coastlinecolor='#69718A', showcountries=True,
-                    countrycolor='#525B76', projection_type='natural earth')
-    fig.update_layout(height=height, paper_bgcolor='rgba(0,0,0,0)',
-                      font=dict(family='Segoe UI, system-ui, sans-serif', color='#F5F7FF'),
-                      margin=dict(l=0, r=0, t=0, b=0), showlegend=False)
+    fig = go.Figure(go.Scattergeo(lat=[meta['lat']], lon=[meta['lon']], text=[esc(meta['region_name'])], marker=dict(size=10, color='#FF8F5A')))
+    fig.update_geos(showland=True, landcolor='#333C57', showocean=True, oceancolor='#18203F', bgcolor='rgba(0,0,0,0)', coastlinecolor='#69718A', showcountries=True, countrycolor='#525B76', projection_type='natural earth')
+    fig.update_layout(height=height, paper_bgcolor='rgba(0,0,0,0)', font=dict(family='Segoe UI, system-ui, sans-serif', color='#F5F7FF'), margin=dict(l=0, r=0, t=0, b=0), showlegend=False)
     return fig
 
-
 def basemap_figure(meta, height=330):
-    """Token-free Esri dark-gray tiles in Scattermap; outline on failure."""
     lat, lon = float(meta['lat']), float(meta['lon'])
     zoom = 5
     map_lat = max(-85.05, min(85.05, lat))
@@ -526,20 +480,12 @@ def basemap_figure(meta, height=330):
     endpoint = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile'
     if not _tile_available(f'{endpoint}/{zoom}/{y}/{x}'):
         return outline_map(meta, height), False
-    style = {'version': 8, 'sources': {'basemap': {'type': 'raster', 'tileSize': 256, 'maxzoom': 16,
-             'tiles': [endpoint + '/{z}/{y}/{x}'],
-             'attribution': 'Esri, HERE, Garmin, © OpenStreetMap contributors, GIS user community'}},
-             'layers': [{'id': 'basemap', 'type': 'raster', 'source': 'basemap'}]}
+    style = {'version': 8, 'sources': {'basemap': {'type': 'raster', 'tileSize': 256, 'maxzoom': 16, 'tiles': [endpoint + '/{z}/{y}/{x}'], 'attribution': 'Esri, HERE, Garmin, © OpenStreetMap contributors, GIS user community'}}, 'layers': [{'id': 'basemap', 'type': 'raster', 'source': 'basemap'}]}
     cls = go.Scattermap if hasattr(go, 'Scattermap') else go.Scattermapbox
-    fig = go.Figure(cls(lat=[lat], lon=[lon], mode='markers',
-                       marker=dict(size=13, color='#FF8F5A'),
-                       text=[esc(meta['region_name'])], hovertemplate='%{text}<br>%{lat:.2f}, %{lon:.2f}<extra></extra>'))
+    fig = go.Figure(cls(lat=[lat], lon=[lon], mode='markers', marker=dict(size=13, color='#FF8F5A'), text=[esc(meta['region_name'])], hovertemplate='%{text}<br>%{lat:.2f}, %{lon:.2f}<extra></extra>'))
     map_key = 'map' if hasattr(go, 'Scattermap') else 'mapbox'
-    fig.update_layout(**{map_key: dict(style=style, center=dict(lat=map_lat, lon=lon), zoom=zoom)},
-                      height=height, margin=dict(l=0, r=0, t=0, b=0), showlegend=False,
-                      paper_bgcolor='rgba(0,0,0,0)', font=dict(family='Segoe UI, system-ui, sans-serif', color='#F5F7FF'))
+    fig.update_layout(**{map_key: dict(style=style, center=dict(lat=map_lat, lon=lon), zoom=zoom)}, height=height, margin=dict(l=0, r=0, t=0, b=0), showlegend=False, paper_bgcolor='rgba(0,0,0,0)', font=dict(family='Segoe UI, system-ui, sans-serif', color='#F5F7FF'))
     return fig, True
-
 
 def render_map(meta, height=330, context='telemetry'):
     fig, tiles_available = basemap_figure(meta, height)
@@ -548,11 +494,9 @@ def render_map(meta, height=330, context='telemetry'):
         st.html('<div class="map-source"><a href="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer">Esri, HERE, Garmin, © OpenStreetMap contributors, and the GIS user community</a></div>')
         with st.expander('Map not loading? Show outline map', on_change='rerun') as fallback:
             if fallback.open:
-                st.plotly_chart(outline_map(meta, height), width='stretch', theme=None,
-                                key=f'{context}-outline', config={'displayModeBar': False})
+                st.plotly_chart(outline_map(meta, height), width='stretch', theme=None, key=f'{context}-outline', config={'displayModeBar': False})
     else:
         st.caption('Basemap tiles unavailable · showing the outline map.')
-
 
 def render_hero(meta, intel, variables):
     with st.container(key='current-result'):
@@ -563,14 +507,10 @@ def render_hero(meta, intel, variables):
             st.caption('Sampling grid cell')
             render_map(meta, height=280, context='hero')
 
-
 def label_chart(fig, unit_label):
-    """Direct labels are display geometry only; observed coordinates stay intact."""
     import textwrap
     if unit_label:
-        fig.add_annotation(x=0, y=1.03, xref='paper', yref='paper', xanchor='left', yanchor='bottom',
-                           text='<br>'.join(esc(line) for line in textwrap.wrap(unit_label, 34)),
-                           showarrow=False, font=dict(size=12, color='#B9BFD3'), align='left')
+        fig.add_annotation(x=0, y=1.03, xref='paper', yref='paper', xanchor='left', yanchor='bottom', text='<br>'.join(esc(line) for line in textwrap.wrap(unit_label, 34)), showarrow=False, font=dict(size=12, color='#B9BFD3'), align='left')
     endpoints = []
     for trace in fig.data:
         if trace.type != 'scatter' or trace.fill == 'toself' or 'lines' not in (trace.mode or ''):
@@ -608,13 +548,9 @@ def label_chart(fig, unit_label):
             adjusted = max(position, last_position + 18)
             shift = adjusted - position
             last_position = adjusted
-            fig.add_annotation(x=x, y=y, text=esc(label), showarrow=False, xanchor='left',
-                               xshift=8, yshift=shift, font=dict(size=11, color=color),
-                               bgcolor='rgba(0,0,0,0)')
-
+            fig.add_annotation(x=x, y=y, text=esc(label), showarrow=False, xanchor='left', xshift=8, yshift=shift, font=dict(size=11, color=color), bgcolor='rgba(0,0,0,0)')
 
 def chart_key(fig):
-    """Retain every original legend name and statistic in an accessible key."""
     rows = []
     for trace in fig.data:
         if not trace.name:
