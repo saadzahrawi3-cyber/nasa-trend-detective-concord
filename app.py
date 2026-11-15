@@ -2,6 +2,7 @@ import io
 import re
 import json
 import socket
+from pathlib import Path
 from html import escape
 from concord_theme import (inject_theme, nav_bar, section_header, stat_tile, status_chip, arc_gauge_svg, sparkline_svg, led_tile, footer, hero_card, icon, safe_prose, html_table, info_note, with_info, variable_color, variable_icon, status_icon, render_map, render_hero, label_chart, chart_key)
 import requests
@@ -29,11 +30,18 @@ except ImportError:
 # ==============================================================================
 # PAGE CONFIGURATION & SESSION STATE INITIALIZATION
 # ==============================================================================
+_favicon_path = next((p for p in ("favicon.png", "favicon.jpg", "Untitled design (2).png", "Untitled design (2).jpg") if Path(p).is_file()), None)
+_logo_path = next((p for p in ("logo.png", "logo.jpg", "Untitled design (1).png", "Untitled design (1).jpg") if Path(p).is_file()), None)
+
 st.set_page_config(
-    page_title="CONCORD | Earth System Trend Detective",
+    page_title="CONCORDE | Coupled Observatory Node for Climate Outliers and Regime Detection at the Edge",
+    page_icon=_favicon_path if _favicon_path else "🌍",
     layout="wide",
     initial_sidebar_state="auto"
 )
+
+if _logo_path:
+    st.logo(_logo_path, icon_image=_favicon_path if _favicon_path else _logo_path)
 
 if "watchlist" not in st.session_state:
     st.session_state["watchlist"] = []

@@ -1,6 +1,7 @@
 """Concord's aurora presentation layer. No analysis or application state lives here."""
 from html import escape, unescape
 import base64
+from pathlib import Path
 from math import cos, sin, radians, isfinite
 from uuid import uuid4
 from math import floor, log, tan, pi, asinh
@@ -9,6 +10,7 @@ import streamlit as st
 import plotly.graph_objects as go
 import requests
 
+EXPLICIT_PROJECT_NAME = "Coupled Observatory Node for Climate Outliers and Regime Detection at the Edge"
 
 CSS = """
 :root {
@@ -80,8 +82,14 @@ input,textarea {font-family:var(--concord-font)!important;}
 .st-key-user_location [data-baseweb="input"]::after {content:'';position:absolute;left:27px;top:27px;width:6px;border-top:1.75px solid var(--text-muted);transform:rotate(45deg);}
 hr {display:none;}
 .concord-nav {display:flex;align-items:center;gap:24px;padding:0;margin:0 0 20px;}
-.wordmark {display:inline-flex;align-items:center;gap:8px;font:600 1rem var(--concord-font);letter-spacing:normal;color:var(--text);text-decoration:none;flex-shrink:0;min-height:44px;}
-.wordmark img {width:24px;height:24px;}
+.wordmark {display:inline-flex;align-items:center;gap:8px;font:600 1.05rem var(--concord-font);letter-spacing:.03em;color:var(--text);text-decoration:none;flex-shrink:0;min-height:44px;}
+.wordmark img {width:24px;height:24px;object-fit:contain;}
+.wordmark img.brand-wordmark-img {height:32px;width:auto;max-width:220px;object-fit:contain;display:block;}
+.product-title-block {display:flex;flex-direction:column;justify-content:center;gap:2px;}
+.product-title {font-size:.95rem;font-weight:500;color:var(--text);line-height:1.3;}
+.product-subtitle {font-size:.8rem;color:var(--text-muted);line-height:1.3;}
+.footer-brand {display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+.footer-explicit {font-size:.85rem;color:var(--text-muted);}
 .nav-links {display:flex;align-items:center;gap:4px;overflow-x:auto;scrollbar-width:thin;min-width:0;}
 .nav-links a {font-size:.875rem;color:var(--text-muted);padding:12px 8px;text-decoration:none;white-space:nowrap;min-height:44px;}
 .nav-links a:hover {color:var(--text);}
@@ -187,9 +195,8 @@ details summary {min-height:44px;cursor:pointer;}
 .variable-icon {width:32px;height:32px;flex-shrink:0;}
 .status-icon {width:18px;height:18px;flex-shrink:0;}
 
-.nav-title {display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
-.product-title {font-size:1rem;color:var(--text-muted);white-space:nowrap;}
-.concord-nav {flex-wrap:wrap;justify-content:space-between;gap:0 16px;}
+.nav-title {display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+.concord-nav {flex-wrap:wrap;justify-content:space-between;gap:8px 16px;}
 .context-stamp {font-size:.875rem;color:var(--text-muted);margin:0 0 24px;}
 [class*="st-key-watchlist-chip-"] {background:var(--surface);border-radius:16px;padding:12px 16px;position:relative;max-width:100%;}
 [class*="st-key-watchlist-chip-"]:has(.selected) {background:var(--surface-hover);}
@@ -262,9 +269,34 @@ def inline_svg(svg, label="", class_name=""):
     return f'<img class="{esc(class_name)}" alt="{esc(label)}" src="data:image/svg+xml;base64,{payload}" />'
 
 
+def _load_local_image_uri(candidates):
+    """Load a local PNG/JPG image as a data URI for st.html blocks."""
+    base_dir = Path(__file__).resolve().parent
+    for name in candidates:
+        for path in (Path(name), base_dir / name):
+            if path.is_file():
+                ext = path.suffix.lower()
+                mime = "image/png" if ext == ".png" else "image/jpeg" if ext in {".jpg", ".jpeg"} else "image/webp"
+                b64 = base64.b64encode(path.read_bytes()).decode("ascii")
+                return f"data:{mime};base64,{b64}"
+    return None
+
+
+def brand_wordmark():
+    """Render the custom CONCORDE wordmark image if present, else the orbital icon + CONCORDE."""
+    logo_uri = _load_local_image_uri(["logo.png", "logo.jpg", "Untitled design (1).png", "Untitled design (1).jpg"])
+    if logo_uri:
+        return f'<img class="brand-wordmark-img" alt="CONCORDE" src="{logo_uri}" />'
+    return icon("orbit") + "CONCORDE"
+
+
 def icon(name="orbit", color="#FF8F5A"):
+    if name == "orbit":
+        fav_uri = _load_local_image_uri(["favicon.png", "favicon.jpg", "Untitled design (2).png", "Untitled design (2).jpg"])
+        if fav_uri:
+            return f'<img alt="CONCORDE Orbit" src="{fav_uri}" />'
     paths = {
-        "orbit": '<ellipse cx="12" cy="12" rx="10" ry="4.8" transform="rotate(-35 12 12)"/><circle cx="12" cy="12" r="6.5"/><path d="M8 13l3-4 5 6"/>',
+        "orbit": '<ellipse cx="12" cy="12" rx="10" ry="4.8" transform="rotate(-35 12 12)"/><circle cx="12" cy="12" r="6.5"/>',
         "pin": '<path d="M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 1 1 14 0Z"/><circle cx="12" cy="10" r="2.5"/>',
         "check": '<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>',
         "info": '<circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v1"/>',
@@ -278,7 +310,19 @@ def icon(name="orbit", color="#FF8F5A"):
 def nav_bar(description=""):
     links = [("inquiry", "Inquiry"), ("significance", "Significance"), ("time-series", "Time-series"),
              ("coupling", "Coupling"), ("simulator", "Simulator"), ("telemetry", "Telemetry")]
-    return '<nav class="concord-nav" aria-label="Dashboard"><div class="nav-title"><a class="wordmark" id="observatory" href="#observatory">' + icon() + 'CONCORD</a><span class="product-title">Earth System Detective</span>' + info_note(description) + '</div><div class="nav-links">' + ''.join(f'<a href="#{esc(key)}">{esc(label)}</a>' for key, label in links) + '</div></nav>'
+    return (
+        '<nav class="concord-nav" aria-label="Dashboard">'
+        '<div class="nav-title">'
+        '<a class="wordmark" id="observatory" href="#observatory">' + brand_wordmark() + '</a>'
+        '<div class="product-title-block">'
+        '<span class="product-title">' + esc(EXPLICIT_PROJECT_NAME) + '</span>'
+        '<span class="product-subtitle">Earth System Detective</span>'
+        '</div>'
+        + info_note(description) +
+        '</div>'
+        '<div class="nav-links">' + ''.join(f'<a href="#{esc(key)}">{esc(label)}</a>' for key, label in links) + '</div>'
+        '</nav>'
+    )
 
 
 def section_header(chapter, title, anchor):
@@ -390,7 +434,16 @@ def html_table(rows, caption="Driver lag analysis"):
 
 
 def footer():
-    return '<div class="concord-footer"><span class="wordmark">' + icon() + 'CONCORD</span><span>NASA POWER / MERRA-2 / CERES</span><span>Exploratory statistics, not causal inference.</span></div>'
+    return (
+        '<div class="concord-footer">'
+        '<div class="footer-brand">'
+        '<span class="wordmark">' + brand_wordmark() + '</span>'
+        '<span class="footer-explicit">' + esc(EXPLICIT_PROJECT_NAME) + '</span>'
+        '</div>'
+        '<span>NASA POWER / MERRA-2 / CERES</span>'
+        '<span>Exploratory statistics, not causal inference.</span>'
+        '</div>'
+    )
 
 
 def info_note(description):
@@ -473,8 +526,6 @@ def basemap_figure(meta, height=330):
     endpoint = 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile'
     if not _tile_available(f'{endpoint}/{zoom}/{y}/{x}'):
         return outline_map(meta, height), False
-    # A raster style avoids token, glyph, and sprite dependencies. Attribution
-    # stays visible in MapLibre and is repeated as an accessible HTML link.
     style = {'version': 8, 'sources': {'basemap': {'type': 'raster', 'tileSize': 256, 'maxzoom': 16,
              'tiles': [endpoint + '/{z}/{y}/{x}'],
              'attribution': 'Esri, HERE, Garmin, © OpenStreetMap contributors, GIS user community'}},
@@ -547,7 +598,6 @@ def label_chart(fig, unit_label):
         else:
             label = next((short for code, short in [('ALLSKY_SFC_SW_DWN', 'Solar'), ('PRECTOTCORR', 'Rain'), ('GWETTOP', 'Soil'), ('T2M', 'T2M'), ('QV2M', 'Humidity'), ('WS2M', 'Wind')] if code in name), 'Series')
         endpoints.append((finite[-1], label, trace.line.color or '#F5F7FF'))
-    # Offset labels vertically where adjacent endpoints would collide.
     if endpoints:
         values = [float(y) for trace in fig.data if trace.type == 'scatter' and trace.y is not None for y in trace.y if y is not None and isfinite(float(y))]
         span = max(values) - min(values) or 1
