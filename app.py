@@ -862,12 +862,14 @@ def apply_dark_monochrome_theme(fig, height=430, xaxis_title="Year", yaxis_title
 with st.sidebar:
     st.html(with_info('<div class="wordmark">' + icon("settings") + 'Control Tower</div>', 'What this section does: Sets system parameters, external dataset ingestion, and ESP32 hardware routing.'))
 
+    # Show an empty box so other researchers can paste their own key
+    gemini_input = st.text_input("Gemini API Key (Optional)", value="", type="password", help="Leave blank to use the secure project key.")
+    
+    # Invisibly use the server's secret key if the box is left empty
     try:
-        default_gemini = st.secrets["GEMINI_API_KEY"]
+        gemini_key = gemini_input if gemini_input.strip() else st.secrets["GEMINI_API_KEY"]
     except Exception:
-        default_gemini = ""
-
-    gemini_key = st.text_input("Gemini 2.5 Flash API Key", value=default_gemini, type="password")
+        gemini_key = gemini_input
     if gemini_key.strip():
         st.caption("ROUTING ENGINE: Live Gemini 2.5 Flash API key loaded.")
     else:
